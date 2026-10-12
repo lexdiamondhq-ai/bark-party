@@ -146,6 +146,20 @@ Render 3 distinct directions in the chat as phone-size images, each with the rea
 
 Build the picked one: `src/app/map.tsx`, `src/app/shop.tsx`, `src/components/game/*`, upgrade effects wired into `PHYS` through `createWorld(level, viewW, seed, upgrades)`.
 
+**Status 2026-10-12: Alex picked C, the Pup Passport, and confirmed the sentence.**
+The three sketches were built as real tappable screens on the tunnel (`src/app/directions/*`, since removed) rather than stills.
+`src/app/passport.tsx` is now the map and the shop: stamps per chapter (tap NEXT to run, story the first time), "Soon" stamps for the park and the yard, stickers that call `buy()` and land on the collar.
+Flow: Title -> Passport -> Story (first time) -> Run -> Results -> Outro -> Passport; quitting a run also returns to the passport with the bones banked.
+Upgrades reach the sim through `createWorld(level, viewW, seed, boosts)`.
+
+## Still open after this round
+
+- Phase 4a item 3: Chapter 1 secret rooms behind a slide, with golden bones.
+- Phase 3 item 6: the allocation audit on the iPhone (the probe shows build 0.1 ms and op handoff 1-2 ms per step, so pooling has not been justified).
+- Phase 1 step 8: typed-array op handoff, only if the audit shows the 2 ms matters.
+- Kitchen music: Chapter 2 reuses the living-room track; `tools/make_audio.py` can make a kitchen one.
+- Party hats and bandanas as cosmetics would be new character art and need Alex's assets.
+
 ## Order and Alex checkpoints
 
 1. Phase 0 and Phase 1 together, then a tunnel QR so Alex checks the legs on the iPhone.
