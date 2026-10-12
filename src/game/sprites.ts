@@ -97,6 +97,13 @@ export const SPRITES = {
   // The wagon the freed pups ride in
   wagon: { w: 96, h: 44 },
 
+  // Kitchen (Chapter 2)
+  kitchen_counter: { w: 160, h: 72, top: 70 },
+  stool: { w: 56, h: 60, top: 58 },
+  fridge: { w: 90, h: 160, top: 158 },
+  dog_bowl: { w: 44, h: 20 },
+  floor_kitchen: { w: 128, h: 40 },
+
   // Effects and UI
   dust_0: { w: 24, h: 16 },
   dust_1: { w: 24, h: 16 },

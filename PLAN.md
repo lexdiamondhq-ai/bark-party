@@ -131,6 +131,11 @@ Files: `src/game/level/*`, `src/game/story.ts`, `src/app/*`, new `src/lib/progre
 4. Chapter 2 "The Kitchen" level data on the existing `room_kitchen` art, reusing the living room sprite set plus the stolen-snacks story beat already written in `CH1_OUTRO`.
    New kitchen props would be new art; the first cut uses what exists and marks props that need drawings for Alex.
 
+**Status 2026-10-12: 4a items 1, 2 and 4 done.**
+`src/engine/progress.ts` (rules, 8 tests), `src/lib/progress.ts` (AsyncStorage store with `useProgress`), `GameView` `RunState` with the Ready/Go count-in, chapter-aware `play`, `results`, `story` and title.
+Chapter 2 "The Kitchen" is in `src/game/level/chapter2.ts` with new props (counter, stool, fridge, bowl, checker floor) drawn in `tools/gen_sprites.js`; the test autopilot clears it.
+Item 3 (Chapter 1 secret rooms) is still open; the chapter map and shop wait for the 4b pick.
+
 ### 4b. Metagame screens (Alex picks a direction)
 
 Render 3 distinct directions in the chat as phone-size images, each with the real pup and breed art, before building:

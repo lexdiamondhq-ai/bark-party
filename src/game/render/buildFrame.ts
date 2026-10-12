@@ -155,20 +155,22 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
 
   // Floor: a dark pit everywhere, wood floor over each segment.
   out.push(RECT, 0, 0, 0, 0, screenW / 2, (sy(0) + screenH) / 2 + 2 * k, screenW + 40, screenH - sy(0) + 20 * k, 0, 1, PIT);
-  const tile = SPRITES.floor_living.w;
+  const floorSprite = world.level.floor;
+  const floorSize = SPRITES[floorSprite];
+  const tile = floorSize.w;
   for (const [a, b] of world.floor) {
     const x0 = Math.max(a, viewL);
     const x1 = Math.min(b, viewR);
     if (x1 <= x0) continue;
-    rect((x0 + x1) / 2, -SPRITES.floor_living.h / 2 - 30, x1 - x0, 60, FLOOR_FILL);
+    rect((x0 + x1) / 2, -floorSize.h / 2 - 30, x1 - x0, 60, FLOOR_FILL);
     const first = Math.floor((x0 - a) / tile) * tile + a;
     for (let x = first; x < x1; x += tile) {
       const w = Math.min(tile, b - x);
-      const f = atlas.frames.floor_living;
+      const f = atlas.frames[floorSprite];
       if (!f) continue;
       const share = w / tile;
-      const cy = -SPRITES.floor_living.h / 2;
-      out.push(f[0], f[1], f[2], f[3] * share, f[4], sx(x + w / 2), sy(cy), w * k, SPRITES.floor_living.h * k, 0, 1, 0, sxPrev(x + w / 2), syPrev(cy));
+      const cy = -floorSize.h / 2;
+      out.push(f[0], f[1], f[2], f[3] * share, f[4], sx(x + w / 2), sy(cy), w * k, floorSize.h * k, 0, 1, 0, sxPrev(x + w / 2), syPrev(cy));
     }
     // Ink edge on pit lips.
     rect(a + 2, -20, 4, 40, COCOA, 0.8);

@@ -1,4 +1,5 @@
 import { CHAPTER_1 } from '../../level/chapter1';
+import { CHAPTER_2 } from '../../level/chapter2';
 import type { LevelDef } from '../../level/types';
 import { HERO_BOX, PHYS } from '../../constants';
 import { createWorld, drainEvents, groundBelow, levelResult, stepWorld } from '../world';
@@ -208,6 +209,9 @@ describe('Chapter 1', () => {
       // Second jump if we are falling toward a pit.
       const below = look(40);
       if (h.vy < 0 && h.jumpsUsed === 1 && (below === null || below < h.y - 150)) return press;
+      // Second jump when a tall solid piece (the fridge) is still above us.
+      const wall = w.platforms.some((p) => p.solid && p.x - h.x > -10 && p.x - h.x < 120 && p.top > h.y + 10);
+      if (h.vy < 60 && h.jumpsUsed === 1 && wall) return press;
       return hold;
     }
     // Jump for pits, solid boxes, vacuums, blocks and higher furniture.
@@ -233,5 +237,17 @@ describe('Chapter 1', () => {
     console.log(`phase=${w.phase} maxX=${Math.round(maxX)} hurt=${w.hurtCount} bones=${r.bones}/${r.bonesTotal} gold=${r.goldBones}/${r.goldTotal} friends=${r.rescued}/${r.rescueTotal}`);
     expect(w.phase).toBe('won');
     expect(PHYS.gravity).toBeGreaterThan(0);
+  });
+
+  it('the autopilot can reach the Chapter 2 boss and win', () => {
+    const w = createWorld(CHAPTER_2, 640, 7);
+    let maxX = 0;
+    for (let i = 0; i < 60 * 120 && w.phase !== 'won' && w.phase !== 'dead'; i++) {
+      stepWorld(w, autopilot(w), DT);
+      maxX = Math.max(maxX, w.hero.x);
+    }
+    const r = levelResult(w);
+    console.log(`ch2 phase=${w.phase} maxX=${Math.round(maxX)} hurt=${w.hurtCount} bones=${r.bones}/${r.bonesTotal} gold=${r.goldBones}/${r.goldTotal} friends=${r.rescued}/${r.rescueTotal}`);
+    expect(w.phase).toBe('won');
   });
 });

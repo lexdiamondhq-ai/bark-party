@@ -3,6 +3,7 @@ import type { DogId } from './sprites';
 
 /** The hero. The Dog Better pup; rename here if the pup has an official name. */
 export const HERO_NAME = 'Pup';
+/** Chapter 1's boss; later chapters name theirs in their LevelDef. */
 export const BOSS_NAME = 'Big Nutsy';
 
 export const DOG_NAMES: Record<DogId, string> = {
@@ -118,3 +119,47 @@ export const CH1_OUTRO: StoryPanel[] = [
 ];
 
 STORIES.ch1 = { intro: CH1_INTRO, outro: CH1_OUTRO };
+
+export const CH2_INTRO: StoryPanel[] = [
+  {
+    room: 'room_kitchen',
+    speaker: 'Leo',
+    text: 'The cake is back, but the kitchen is a mess. Where did the party snacks go?',
+    left: { kind: 'coach', id: 'leo' },
+    right: { kind: 'dog', id: 'golden' },
+  },
+  {
+    room: 'room_kitchen',
+    slam: true,
+    speaker: 'Chef Nutsy',
+    text: "Snacks? MY snacks! And I've got three more pups up on the counter!",
+    left: { kind: 'boss' },
+    right: { kind: 'cage', dog: 'golden' },
+  },
+  {
+    room: 'room_kitchen',
+    speaker: 'Hana',
+    text: 'Biscuit, Noodle and Scout! Pup, the stools are your stairs. Go get them!',
+    left: { kind: 'coach', id: 'hana' },
+    right: { kind: 'pup', pose: 'bark' },
+  },
+];
+
+export const CH2_OUTRO: StoryPanel[] = [
+  {
+    room: 'room_kitchen',
+    speaker: 'Chef Nutsy',
+    text: 'Fine! Keep your crumbs. The Gang will be back for the garden!',
+    left: { kind: 'boss' },
+    right: { kind: 'pup', pose: 'bark' },
+  },
+  {
+    room: 'room_kitchen',
+    speaker: 'Maya',
+    text: `Snacks saved, pups in the wagon. ${HERO_NAME}, you are the hero of this party.`,
+    left: { kind: 'coach', id: 'maya' },
+    right: { kind: 'dog', id: 'golden' },
+  },
+];
+
+STORIES.ch2 = { intro: CH2_INTRO, outro: CH2_OUTRO };

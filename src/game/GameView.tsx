@@ -208,7 +208,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
             break;
           case 'boss_start':
             setBoss({ hits: 0, needed: world.boss?.hitsNeeded ?? 3 });
-            showBanner(BOSS_NAME.toUpperCase() + '!');
+            showBanner((level.boss?.name ?? BOSS_NAME).toUpperCase() + '!');
             break;
           case 'boss_hit':
             setBoss({ hits: e.hits, needed: e.needed });
@@ -232,7 +232,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         }
       }
     },
-    [onWin, setRun, showBanner, showCallout, world],
+    [level.boss?.name, onWin, setRun, showBanner, showCallout, world],
   );
 
   // The game loop: fixed 60 Hz steps on the JS thread, then one frame of draw ops for the UI thread.
@@ -429,7 +429,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         <Animated.View entering={FadeIn} pointerEvents="none" style={[styles.bossBar, { bottom: 14 }]}>
           <Image source={HUD.cake} style={styles.bossCake} />
           <View>
-            <Text style={styles.bossName}>{BOSS_NAME}</Text>
+            <Text style={styles.bossName}>{level.boss?.name ?? BOSS_NAME}</Text>
             <View style={styles.hudRow}>
               {Array.from({ length: boss.needed }, (_, i) => (
                 <View key={i} style={[styles.pip, i < boss.needed - boss.hits ? styles.pipFull : null]} />

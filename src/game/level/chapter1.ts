@@ -1,3 +1,4 @@
+import { CHAPTER_2 } from './chapter2';
 import type { LevelDef } from './types';
 
 // Chapter 1: The Living Room.
@@ -121,7 +122,7 @@ export const CHAPTER_1: LevelDef = {
   finishX: 9000,
 };
 
-export const LEVELS: LevelDef[] = [CHAPTER_1];
+export const LEVELS: LevelDef[] = [CHAPTER_1, CHAPTER_2];
 export const CHAPTER_IDS = LEVELS.map((l) => l.id);
 
 export function levelById(id: string | undefined): LevelDef | undefined {

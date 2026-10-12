@@ -883,6 +883,71 @@ function wagon() {
   return g;
 }
 
+// ---------------------------------------------------------------- kitchen (Chapter 2)
+const K = { cab: '#5FB7A8', cabS: '#43978A', counterTop: '#F2E4C8', counterTopS: '#D9C7A2', steel: '#C9D3DC', steelS: '#A3B0BC', tile: '#F4EBDD', tileS: '#DCCDB8', tile2: '#D6B48E', bowl: '#FF7C9C', bowlS: '#E05E7E' };
+
+// A kitchen counter: a pale stone top on teal cabinets with two doors and brass knobs.
+function kitchenCounter(top) {
+  let g = '';
+  const y0 = 72 - top + X.O;
+  g += blob(R(4, y0 + 8, 152, 60, 2), K.cab, K.cabS, { O: 2.2, so: 1.8, off: [1.6, -1.8] });
+  g += `<path d="M80 ${y0 + 12} L80 ${y0 + 64}" stroke="${OUT}" stroke-width="1.6"/>`;
+  g += `<path d="M14 ${y0 + 16} L70 ${y0 + 16} L70 ${y0 + 60} L14 ${y0 + 60} Z M90 ${y0 + 16} L146 ${y0 + 16} L146 ${y0 + 60} L90 ${y0 + 60} Z" fill="none" stroke="${K.cabS}" stroke-width="1.4" stroke-linejoin="round"/>`;
+  g += blob(Ci(64, y0 + 38, 2.6), C.brass, C.brassS, { O: 1, so: 0.5 }) + blob(Ci(96, y0 + 38, 2.6), C.brass, C.brassS, { O: 1, so: 0.5 });
+  g += blob(R(0, y0, 160, 10, 3), K.counterTop, K.counterTopS, { O: 2.2, so: 1.4, off: [0, -2] });
+  g += `<path d="M10 ${y0 + 3} L80 ${y0 + 3}" stroke="${WH}" stroke-opacity="0.5" stroke-width="1.6" stroke-linecap="round"/>`;
+  return g;
+}
+
+// A wooden stool, lower than the counter: the first step up.
+function stool(top) {
+  let g = '';
+  const y0 = 60 - top + X.O;
+  g += strokes([`M12 ${y0 + 8} L8 58`, `M44 ${y0 + 8} L48 58`, `M28 ${y0 + 8} L28 58`], 4.2, C.wood, { O: 1.4 });
+  g += strokes([`M10 40 L46 40`], 2.6, C.woodS, { O: 1 });
+  g += blob(E(28, y0 + 5, 25, 5), C.wood, C.woodS, { O: 2, so: 1.2, off: [0, -1.4] });
+  g += `<path d="M14 ${y0 + 3} L36 ${y0 + 3}" stroke="${WH}" stroke-opacity="0.4" stroke-width="1.4" stroke-linecap="round"/>`;
+  return g;
+}
+
+// A tall fridge the dog cannot run through; its top is a high shelf to reach by stool and counter.
+function fridge(top) {
+  let g = '';
+  const y0 = 160 - top + X.O;
+  g += blob(R(4, y0, 82, 156, 5), K.steel, K.steelS, { O: 2.4, so: 2, off: [2, -2] });
+  g += `<path d="M8 ${y0 + 52} L82 ${y0 + 52}" stroke="${OUT}" stroke-width="1.8"/>`;
+  g += strokes([`M70 ${y0 + 14} L70 ${y0 + 42}`, `M70 ${y0 + 62} L70 ${y0 + 120}`], 3.6, K.steelS, { O: 1.2 });
+  g += `<path d="M12 ${y0 + 6} L12 ${y0 + 44}" stroke="${WH}" stroke-opacity="0.55" stroke-width="2" stroke-linecap="round"/>`;
+  // A couple of paw magnets and a party note.
+  g += blob(R(22, y0 + 70, 22, 16, 2), C.gold, C.goldS, { O: 1.2, so: 0.8 });
+  g += `<path d="M26 ${y0 + 75} L40 ${y0 + 75} M26 ${y0 + 80} L36 ${y0 + 80}" stroke="${OUT}" stroke-width="1" stroke-linecap="round"/>`;
+  g += blob(Ci(50, y0 + 96, 4), C.gum, C.gumS, { O: 1, so: 0.5 }) + blob(Ci(30, y0 + 104, 3.4), C.sky, C.skyS, { O: 1, so: 0.5 });
+  return g;
+}
+
+// The pup's bowl, a decoration on the floor.
+function dogBowl() {
+  let g = '';
+  g += blob(P('M4 8 L40 8 L35 18 L9 18 Z'), K.bowl, K.bowlS, { O: 1.6, so: 1, off: [1, -1] });
+  g += blob(E(22, 8, 18, 3.4), K.bowlS, null, { O: 1.4 });
+  g += blob(E(22, 7.6, 13, 2.2), C.cream, C.creamS, { O: 0.9, so: 0.6 });
+  g += `<path d="M9 11 L19 11" stroke="${WH}" stroke-opacity="0.45" stroke-width="1.4" stroke-linecap="round"/>`;
+  return g;
+}
+
+// Checkerboard kitchen tiles, one 128-unit strip that repeats.
+function floorKitchen() {
+  let g = blob(R(0, 0, 128, 40), K.tile, null, { O: 0 });
+  for (let i = 0; i < 4; i++) {
+    const x = i * 32;
+    g += `<rect x="${x}" y="0" width="16" height="16" fill="${K.tile2}"/><rect x="${x + 16}" y="16" width="16" height="16" fill="${K.tile2}"/>`;
+    g += `<rect x="${x}" y="32" width="16" height="8" fill="${K.tile2}"/>`;
+  }
+  g += `<path d="M0 0 L128 0" stroke="${OUT}" stroke-width="3"/>`;
+  g += `<g stroke="${K.tileS}" stroke-width="0.8">${[16, 32, 48, 64, 80, 96, 112].map((x) => `<path d="M${x} 0 L${x} 40"/>`).join('')}<path d="M0 16 L128 16 M0 32 L128 32"/></g>`;
+  return g;
+}
+
 // ---------------------------------------------------------------- registry
 const S = {};
 const add = (name, W, H, O, fn, top) => (S[name] = { W, H, O, fn, top });
@@ -935,6 +1000,11 @@ add('heart_full', 24, 22, 1.4, () => blob(P(heartPath(12, 11.6, 9.6)), C.gum, C.
 add('heart_empty', 24, 22, 1.4, () => blob(P(heartPath(12, 11.6, 9.6)), '#E9DAD2', '#D5C2B8', { so: 1.6 }));
 add('bone_icon', 28, 16, 1.4, () => bone(28, 16, false, 1.4));
 add('wagon', 96, 44, 2, () => wagon());
+add('kitchen_counter', 160, 72, 2.2, () => kitchenCounter(70), 70);
+add('stool', 56, 60, 2, () => stool(58), 58);
+add('fridge', 90, 160, 2.4, () => fridge(158), 158);
+add('dog_bowl', 44, 20, 1.6, () => dogBowl());
+add('floor_kitchen', 128, 40, 1.6, () => floorKitchen(), 40);
 
 const only = process.argv.slice(2);
 const dir = path.resolve(__dirname, '..', 'art', 'svg');

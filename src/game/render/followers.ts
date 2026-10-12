@@ -51,8 +51,8 @@ function smooth(u: number) {
 
 export function followerDraws(world: World, t: number): FollowerDraws {
   const out: FollowerDraws = { sprites: [], ropes: [] };
-  const trail = world.trail;
-  if (trail.length === 0) return out;
+  // Before the first step the trail is empty: the wagon starts right behind the dog.
+  const trail = world.trail.length ? world.trail : [{ x: world.hero.x, y: world.hero.y }];
   const at = (i: number) => trail[Math.max(0, Math.min(trail.length - 1, i))];
 
   // The wagon follows the trail, tips with the ground and bounces a little on its wheels.
