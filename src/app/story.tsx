@@ -20,11 +20,11 @@ import { STORY_SPRITES } from '../game/storyArt';
 import { colors, fonts, springs } from '../theme/tokens';
 
 /** `scene` is `<chapter>_intro` or `<chapter>_outro`; an intro leads into the chapter, an outro back to the title. */
-function sceneFor(scene: string): { panels: StoryPanel[]; next: { pathname: '/play' | '/'; params?: { chapter: string } } } {
+function sceneFor(scene: string): { panels: StoryPanel[]; next: { pathname: '/play' | '/passport'; params?: { chapter: string } } } {
   const m = /^(.+)_(intro|outro)$/.exec(scene);
   const chapter = m?.[1] ?? 'ch1';
   const story = STORIES[chapter] ?? STORIES.ch1;
-  if (m?.[2] === 'outro' && story.outro) return { panels: story.outro, next: { pathname: '/' } };
+  if (m?.[2] === 'outro' && story.outro) return { panels: story.outro, next: { pathname: '/passport' } };
   return { panels: story.intro, next: { pathname: '/play', params: { chapter } } };
 }
 
