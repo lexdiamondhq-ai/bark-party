@@ -1,0 +1,964 @@
+import { HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, PHYS } from '../constants';
+import type { LevelDef } from '../level/types';
+import { SPRITES, type SpriteName } from '../sprites';
+import { seededRng } from '../../engine/rng';
+import type { Acorn, Boss, Enemy, GameEvent, Hero, Input, Particle, Platform, World } from './types';
+
+const TRAIL_MAX = 240;
+/** Boss stands this far ahead of the dog during the chase. */
+export const BOSS_LEAD = 300;
+const CONFETTI = ['#FFB020', '#FF5A8A', '#19C3B1', '#48A6FF', '#8EDB3F', '#7B5CFF'];
+
+export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
+  const platforms: Platform[] = level.platforms.map((p) => {
+    const s = SPRITES[p.sprite] as { w: number; h: number; top?: number };
+    const y = p.y ?? 0;
+    return { sprite: p.sprite, x: p.x, y, w: s.w, h: s.h, top: y + (s.top ?? s.h), solid: !!p.solid };
+  });
+  let id = 0;
+  const enemies: Enemy[] = level.enemies.map((e) => makeEnemy(e, id++));
+  const world: World = {
+    level,
+    viewW,
+    rng: seededRng(seed),
+    t: 0,
+    phase: 'run',
+    phaseT: 0,
+    hero: makeHero(0),
+    camX: 0,
+    shake: 0,
+    platforms,
+    floor: level.floorSegments.map(([a, b]) => [a, b] as [number, number]),
+    enemies,
+    acorns: [],
+    pickups: level.pickups.map((p) => ({
+      kind: p.kind,
+      x: p.x,
+      y: p.y,
+      taken: false,
+      takenT: 0,
+      sprite: pickupSprite(p.kind, p.x),
+    })),
+    cages: level.cages.map((c) => ({ x: c.x, y: c.y ?? 0, dog: c.dog, open: false, openT: 0 })),
+    checkpoints: level.checkpoints.map((x) => ({ x, reached: false })),
+    respawnX: 0,
+    callouts: level.callouts.map((c) => ({ ...c, done: false })),
+    followers: [],
+    trail: [],
+    particles: [],
+    boss: level.boss
+      ? {
+          name: level.boss.name,
+          hitsNeeded: level.boss.hits,
+          hits: 0,
+          phase: 'waiting',
+          t: 0,
+          x: level.boss.x + 600,
+          y: 0,
+          vy: 0,
+          throwT: 0,
+          throwing: 0,
+          pattern: 0,
+          hurtT: 0,
+        }
+      : null,
+    bones: 0,
+    bonesTotal: level.pickups.filter((p) => p.kind === 'bone').length,
+    goldBones: 0,
+    goldTotal: level.pickups.filter((p) => p.kind === 'bone_gold').length,
+    hurtCount: 0,
+    events: [],
+    finished: false,
+  };
+  world.camX = cameraTarget(world);
+  return world;
+}
+
+function makeHero(x: number): Hero {
+  return {
+    x,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    onGround: true,
+    airTime: 0,
+    jumpBuffer: 0,
+    slideBuffer: 0,
+    jumpsUsed: 0,
+    sliding: 0,
+    barking: 0,
+    barkCooldown: 0,
+    invuln: 0,
+    hearts: MAX_HEARTS,
+    sinceLand: 1,
+    stride: 0,
+    blocked: false,
+    pose: 'run',
+  };
+}
+
+function pickupSprite(kind: 'bone' | 'bone_gold' | 'present', x: number): SpriteName {
+  if (kind === 'bone') return 'bone';
+  if (kind === 'bone_gold') return 'bone_gold';
+  const presents: SpriteName[] = ['present_red', 'present_blue', 'present_green'];
+  return presents[Math.abs(Math.round(x / 7)) % 3];
+}
+
+function makeEnemy(e: LevelDef['enemies'][number], id: number): Enemy {
+  const base: Enemy = {
+    id,
+    type: e.type,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    w: 40,
+    h: 40,
+    state: 'active',
+    t: 0,
+    cooldown: 0.6,
+    throwing: 0,
+    awake: false,
+    x0: 0,
+    x1: 0,
+    speed: 0,
+    facing: -1,
+  };
+  switch (e.type) {
+    case 'runner':
+      return { ...base, x: e.x, y: e.y ?? 0, w: 40, h: 36, speed: e.speed ?? 95 };
+    case 'thrower':
+      return { ...base, x: e.x, y: e.y ?? 0, w: 40, h: 40, cooldown: 0.4, speed: e.every ?? 1.6 };
+    case 'cat':
+      return { ...base, x: e.x, y: e.y ?? 0, w: 56, h: 40 };
+    case 'vacuum':
+      return { ...base, x: e.x0, x0: e.x0, x1: e.x1, w: 56, h: 22, speed: e.speed ?? 80 };
+    case 'blocks':
+      return { ...base, x: e.x, y: e.y ?? 0, w: 34, h: 38 };
+  }
+}
+
+export function cameraTarget(world: World): number {
+  return world.hero.x - world.viewW * HERO_SCREEN_X;
+}
+
+/* ------------------------------------------------------------------ */
+/* Surfaces                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Height of the highest surface at x that is at or below `maxY` (the dog's feet), or null over a pit. */
+export function groundBelow(world: World, x: number, halfW: number, maxY: number): number | null {
+  let best: number | null = null;
+  if (world.phase === 'boss' || onFloor(world, x, halfW)) best = 0;
+  for (const p of world.platforms) {
+    if (x + halfW <= p.x + 6 || x - halfW >= p.x + p.w - 6) continue;
+    if (p.top <= maxY + 0.01 && (best === null || p.top > best)) best = p.top;
+  }
+  return best;
+}
+
+function onFloor(world: World, x: number, halfW: number): boolean {
+  // The dog needs its centre over the floor, so it can teeter over the edge a little.
+  for (const [a, b] of world.floor) if (x >= a - halfW * 0.4 && x <= b + halfW * 0.4) return true;
+  return false;
+}
+
+/* ------------------------------------------------------------------ */
+/* Step                                                                */
+/* ------------------------------------------------------------------ */
+
+export function stepWorld(world: World, input: Input, dtRaw: number): void {
+  const dt = Math.min(dtRaw, 1 / 30);
+  world.t += dt;
+  world.phaseT += dt;
+  world.shake = Math.max(0, world.shake - dt * 3);
+
+  if (world.phase === 'respawn') {
+    if (world.phaseT > 0.9) respawn(world);
+    stepParticles(world, dt);
+    return;
+  }
+  if (world.phase === 'dead') {
+    stepParticles(world, dt);
+    return;
+  }
+
+  stepHero(world, input, dt);
+  stepEnemies(world, dt);
+  stepAcorns(world, dt);
+  stepBoss(world, dt);
+  collectPickups(world, dt);
+  openCages(world);
+  passCheckpoints(world);
+  fireCallouts(world);
+  stepParticles(world, dt);
+
+  // Trail for followers.
+  world.trail.unshift({ x: world.hero.x, y: world.hero.y });
+  if (world.trail.length > TRAIL_MAX) world.trail.length = TRAIL_MAX;
+
+  // Camera eases toward the dog; it never lags far enough to lose it.
+  const target = cameraTarget(world);
+  world.camX += (target - world.camX) * Math.min(1, dt * 10);
+
+  if (world.phase === 'won') {
+    if (!world.finished && world.phaseT > 2.2) {
+      world.finished = true;
+      emit(world, { type: 'won' });
+    }
+    return;
+  }
+
+  // Finish arch (levels without a boss).
+  if (!world.level.boss && world.hero.x >= world.level.finishX) win(world);
+}
+
+function emit(world: World, e: GameEvent) {
+  world.events.push(e);
+}
+
+function sfx(world: World, name: string) {
+  world.events.push({ type: 'sfx', name });
+}
+
+function haptic(world: World, kind: Extract<GameEvent, { type: 'haptic' }>['kind']) {
+  world.events.push({ type: 'haptic', kind });
+}
+
+/* ------------------------------------------------------------------ */
+/* Hero                                                                */
+/* ------------------------------------------------------------------ */
+
+function stepHero(world: World, input: Input, dt: number) {
+  const h = world.hero;
+  const won = world.phase === 'won';
+  h.invuln = Math.max(0, h.invuln - dt);
+  h.barkCooldown = Math.max(0, h.barkCooldown - dt);
+  h.barking = Math.max(0, h.barking - dt);
+  if (h.barking > 0) barkWave(world);
+  h.sliding = Math.max(0, h.sliding - dt);
+  h.sinceLand += dt;
+  h.jumpBuffer = Math.max(0, h.jumpBuffer - dt);
+  h.slideBuffer = Math.max(0, h.slideBuffer - dt);
+
+  if (!won) {
+    if (input.jumpPressed) h.jumpBuffer = PHYS.jumpBuffer;
+    if (input.barkPressed && h.barkCooldown <= 0) bark(world);
+    if (input.slidePressed) {
+      if (h.onGround) {
+        h.sliding = PHYS.slideTime;
+        sfx(world, 'slide');
+        dust(world, h.x - 10, h.y, 2);
+      } else {
+        // Swipe down in the air: dive to the ground fast, then slide on landing.
+        h.vy = Math.min(h.vy, -900);
+        h.slideBuffer = 0.35;
+      }
+    }
+  }
+
+  // Running speed: auto-run, stopping only when blocked or after the win.
+  const speed = won ? Math.max(0, h.vx - dt * 500) : world.level.runSpeed;
+  h.vx = speed;
+
+  // Jumping: ground jump (with coyote time) or one air jump.
+  const canGroundJump = h.onGround || h.airTime < PHYS.coyoteTime;
+  if (h.jumpBuffer > 0 && !won) {
+    if (canGroundJump && h.jumpsUsed === 0) {
+      h.vy = PHYS.jumpVelocity;
+      h.jumpsUsed = 1;
+      h.onGround = false;
+      h.sliding = 0;
+      h.jumpBuffer = 0;
+      sfx(world, 'jump');
+      haptic(world, 'light');
+      dust(world, h.x, h.y, 3);
+    } else if (h.jumpsUsed < 2) {
+      h.vy = PHYS.doubleJumpVelocity;
+      h.jumpsUsed = 2;
+      h.jumpBuffer = 0;
+      sfx(world, 'double_jump');
+      haptic(world, 'light');
+      for (let i = 0; i < 6; i++) spark(world, h.x, h.y + 10, 'star');
+    }
+  }
+  // Variable height: let go early and the rise is cut short.
+  if (!input.jumpHeld && h.vy > 0 && h.jumpsUsed > 0) h.vy *= Math.pow(PHYS.jumpCut, dt * 12);
+
+  // Horizontal move with solid-side blocking.
+  const halfW = HERO_BOX.w / 2;
+  const heroH = h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h;
+  let nx = h.x + h.vx * dt;
+  h.blocked = false;
+  for (const p of world.platforms) {
+    if (!p.solid) continue;
+    const overlapsY = h.y < p.top - 4 && h.y + heroH > p.y;
+    if (overlapsY && h.x + halfW <= p.x + 2 && nx + halfW > p.x) {
+      nx = p.x - halfW;
+      h.blocked = true;
+    }
+  }
+  h.x = nx;
+
+  // Vertical move and landing.
+  h.vy = Math.max(-PHYS.maxFall, h.vy - PHYS.gravity * dt);
+  const prevY = h.y;
+  let ny = h.y + h.vy * dt;
+  const ground = groundBelow(world, h.x, halfW * 0.8, prevY + PHYS.landTolerance * (h.vy <= 0 ? 1 : 0));
+  const wasOnGround = h.onGround;
+  if (ground !== null && h.vy <= 0 && ny <= ground && prevY >= ground - 1) {
+    ny = ground;
+    if (!wasOnGround) {
+      h.sinceLand = 0;
+      if (h.vy < -500) {
+        sfx(world, 'land');
+        dust(world, h.x, ground, 4);
+      }
+    }
+    h.vy = 0;
+    h.onGround = true;
+    h.airTime = 0;
+    h.jumpsUsed = 0;
+    if (h.slideBuffer > 0 && !won) {
+      h.slideBuffer = 0;
+      h.sliding = PHYS.slideTime;
+      sfx(world, 'slide');
+      dust(world, h.x - 10, ground, 2);
+    }
+  } else {
+    h.onGround = false;
+    h.airTime += dt;
+  }
+  h.y = ny;
+
+  // Fell into a pit.
+  if (h.y < -140 && world.phase !== 'won') {
+    loseHeart(world, true);
+  }
+
+  // Pose for the renderer.
+  if (won) h.pose = h.vx > 5 ? 'run' : 'cheer';
+  else if (h.invuln > PHYS.hurtInvuln - 0.35) h.pose = 'hurt';
+  else if (h.barking > 0) h.pose = 'bark';
+  else if (h.sliding > 0) h.pose = 'slide';
+  else if (!h.onGround) h.pose = h.vy > 0 ? 'jump' : 'fall';
+  else h.pose = 'run';
+
+  if (h.onGround && h.vx > 0) h.stride = (h.stride + (h.vx * dt) / 120) % 1;
+}
+
+function bark(world: World) {
+  const h = world.hero;
+  h.barking = PHYS.barkTime;
+  h.barkCooldown = PHYS.barkCooldown;
+  sfx(world, world.phase === 'boss' ? 'bark_big' : 'bark');
+  haptic(world, 'medium');
+  world.shake = Math.max(world.shake, 0.25);
+  world.particles.push({
+    sprite: 'bark_burst',
+    x: h.x + 70,
+    y: h.y + 40,
+    vx: world.level.runSpeed,
+    vy: 30,
+    gravity: 0,
+    life: 0.45,
+    maxLife: 0.45,
+    rot: -0.15,
+    vr: 0.3,
+    scale: 1,
+  });
+
+  barkWave(world);
+}
+
+/** The bark keeps swatting for its whole duration, so a slightly early press still works. */
+function barkWave(world: World) {
+  const h = world.hero;
+  const reach = PHYS.barkRange;
+  for (const e of world.enemies) {
+    if (e.state !== 'active') continue;
+    if (e.type === 'vacuum' || e.type === 'blocks') continue;
+    const dx = e.x - h.x;
+    if (dx < -20 || dx > reach) continue;
+    if (Math.abs(e.y - h.y) > 100) continue;
+    if (e.type === 'cat') {
+      e.state = 'fled';
+      e.vx = 260;
+      e.vy = 300;
+      e.facing = 1;
+      sfx(world, 'cat_hiss');
+    } else {
+      stun(world, e, 380, 420);
+    }
+  }
+  for (const a of world.acorns) {
+    if (!a.alive || a.reflected) continue;
+    const dx = a.x - h.x;
+    if (dx < -10 || dx > reach + 40 || Math.abs(a.y - h.y) > 170) continue;
+    a.reflected = true;
+    a.rolling = false;
+    if (a.golden && world.boss && world.phase === 'boss') {
+      // Aim back at the boss.
+      const b = world.boss;
+      const tFly = 0.55;
+      a.vx = (b.x - a.x) / tFly + world.level.runSpeed;
+      a.vy = (b.y + 70 - a.y) / tFly + (PHYS.gravity * 0.5 * tFly) / 2;
+    } else {
+      a.vx = 520;
+      a.vy = 520;
+    }
+    sfx(world, 'acorn_hit');
+  }
+}
+
+function stun(world: World, e: Enemy, vx: number, vy: number) {
+  e.state = 'stunned';
+  e.vx = vx;
+  e.vy = vy;
+  e.t = 0;
+  sfx(world, 'squirrel_stun');
+  for (let i = 0; i < 5; i++) spark(world, e.x, e.y + e.h, 'star');
+}
+
+function hurt(world: World) {
+  const h = world.hero;
+  if (h.invuln > 0 || world.phase === 'won') return;
+  loseHeart(world, false);
+}
+
+function loseHeart(world: World, fell: boolean) {
+  const h = world.hero;
+  h.hearts -= 1;
+  world.hurtCount += 1;
+  h.invuln = PHYS.hurtInvuln;
+  world.shake = 0.6;
+  sfx(world, 'hurt');
+  haptic(world, 'error');
+  emit(world, { type: 'hurt', hearts: h.hearts });
+  if (h.hearts <= 0) {
+    world.phase = 'dead';
+    world.phaseT = 0;
+    sfx(world, 'game_over');
+    emit(world, { type: 'gameover' });
+    return;
+  }
+  if (fell) {
+    world.phase = 'respawn';
+    world.phaseT = 0;
+  } else {
+    h.vy = Math.max(h.vy, 380);
+    for (let i = 0; i < 4; i++) spark(world, h.x, h.y + 30, 'heart');
+  }
+}
+
+function respawn(world: World) {
+  const h = world.hero;
+  const hearts = h.hearts;
+  Object.assign(h, makeHero(world.respawnX));
+  h.hearts = hearts;
+  h.invuln = 1.2;
+  h.y = groundBelow(world, h.x, 10, 999) ?? 0;
+  world.phase = world.boss && world.boss.phase !== 'waiting' && world.boss.phase !== 'gone' ? 'boss' : 'run';
+  world.phaseT = 0;
+  world.acorns = [];
+  world.trail = [];
+  world.camX = cameraTarget(world);
+}
+
+/** After a game over: try again from the last balloon post with full hearts. */
+export function continueFromCheckpoint(world: World) {
+  world.hero.hearts = MAX_HEARTS;
+  respawn(world);
+  if (world.boss && world.boss.phase !== 'waiting') {
+    // The boss fight restarts from the top so the chase stays fair.
+    world.boss.hits = 0;
+    world.boss.phase = 'intro';
+    world.boss.t = 0;
+    world.boss.x = world.hero.x + BOSS_LEAD + 200;
+    world.phase = 'boss';
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Enemies                                                             */
+/* ------------------------------------------------------------------ */
+
+function stepEnemies(world: World, dt: number) {
+  const h = world.hero;
+  const heroH = h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h;
+  for (const e of world.enemies) {
+    e.t += dt;
+    if (e.state === 'stunned' || e.state === 'fled') {
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+      e.vy -= PHYS.gravity * 0.6 * dt;
+      continue;
+    }
+    // Sleep enemies far off-screen.
+    if (e.x - h.x > world.viewW * 1.3 || h.x - e.x > world.viewW) continue;
+
+    switch (e.type) {
+      case 'runner': {
+        e.x -= e.speed * dt;
+        e.facing = -1;
+        break;
+      }
+      case 'thrower': {
+        e.facing = -1;
+        e.throwing = Math.max(0, e.throwing - dt);
+        const dx = e.x - h.x;
+        if (dx > 40 && dx < 460) {
+          e.cooldown -= dt;
+          if (e.cooldown <= 0) {
+            e.cooldown = e.speed;
+            e.throwing = 0.3;
+            throwAcorn(world, e.x - 16, e.y + 34, h, false);
+          }
+        }
+        break;
+      }
+      case 'cat': {
+        const dx = e.x - h.x;
+        if (!e.awake && dx < 150 && dx > -40) {
+          e.awake = true;
+          e.t = 0;
+          sfx(world, 'cat_hiss');
+        }
+        break;
+      }
+      case 'vacuum': {
+        e.x += e.facing * e.speed * dt;
+        if (e.x < e.x0) e.facing = 1;
+        if (e.x > e.x1) e.facing = -1;
+        break;
+      }
+      case 'blocks':
+        break;
+    }
+
+    // Contact with the dog.
+    const ex0 = e.x - e.w / 2;
+    const ex1 = e.x + e.w / 2;
+    const hx0 = h.x - HERO_BOX.w / 2 + 4;
+    const hx1 = h.x + HERO_BOX.w / 2 - 4;
+    if (hx1 < ex0 || hx0 > ex1) continue;
+    const ey0 = e.y;
+    const ey1 = e.y + e.h;
+    if (h.y + heroH < ey0 || h.y > ey1) continue;
+
+    const fromAbove = h.vy < 0 && h.y > ey1 - 18;
+    if (e.type === 'cat') {
+      if (!e.awake) continue;
+      if (fromAbove) {
+        e.state = 'fled';
+        e.vx = 240;
+        e.vy = 260;
+        h.vy = PHYS.stompBounce;
+        h.jumpsUsed = 1;
+        sfx(world, 'cat_hiss');
+      } else hurt(world);
+      continue;
+    }
+    if (e.type === 'vacuum') {
+      if (fromAbove) {
+        // Bounce off the vacuum like a trampoline.
+        h.vy = PHYS.stompBounce * 1.25;
+        h.jumpsUsed = 1;
+        sfx(world, 'jump');
+        haptic(world, 'light');
+      } else hurt(world);
+      continue;
+    }
+    if (e.type === 'blocks') {
+      if (!fromAbove) {
+        hurt(world);
+        e.state = 'stunned';
+        e.vx = 200;
+        e.vy = 300;
+      }
+      continue;
+    }
+    // Squirrels: stomp, slide-tackle or get bitten.
+    if (fromAbove) {
+      stun(world, e, 300, 200);
+      h.vy = PHYS.stompBounce;
+      h.jumpsUsed = 1;
+      haptic(world, 'medium');
+    } else if (h.sliding > 0) {
+      stun(world, e, 420, 380);
+    } else hurt(world);
+  }
+  // Drop enemies that are long gone.
+  world.enemies = world.enemies.filter((e) => e.y > -300 && e.x > h.x - world.viewW * 1.5);
+}
+
+function throwAcorn(world: World, x: number, y: number, target: Hero, golden: boolean) {
+  // Aim where the dog will be when the acorn comes down to its head height.
+  const tFly = 0.8;
+  const tx = target.x + world.level.runSpeed * tFly;
+  const ty = target.y + 30;
+  world.acorns.push({
+    x,
+    y,
+    vx: (tx - x) / tFly,
+    vy: (ty - y) / tFly + (PHYS.gravity * 0.5 * tFly) / 2,
+    golden,
+    rolling: false,
+    reflected: false,
+    alive: true,
+    spin: 0,
+  });
+  sfx(world, 'acorn_throw');
+}
+
+function stepAcorns(world: World, dt: number) {
+  const h = world.hero;
+  const heroH = h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h;
+  for (const a of world.acorns) {
+    if (!a.alive) continue;
+    a.spin += dt * (a.rolling ? -14 : 10);
+    if (a.rolling) {
+      a.x += a.vx * dt;
+      a.y = 0;
+    } else {
+      a.x += a.vx * dt;
+      a.y += a.vy * dt;
+      a.vy -= PHYS.gravity * 0.5 * dt;
+      if (a.y < 0 && !a.reflected) {
+        // Bounce once, then roll away.
+        a.y = 0;
+        a.rolling = true;
+        a.vx = Math.min(a.vx, -60);
+      }
+    }
+    if (a.y < -200 || a.x < h.x - world.viewW || a.x > h.x + world.viewW * 2) a.alive = false;
+
+    if (a.reflected) {
+      const b = world.boss;
+      if (a.golden && b && world.phase === 'boss' && b.phase === 'fight') {
+        if (Math.abs(a.x - b.x) < 50 && a.y > b.y + 20 && a.y < b.y + 130) {
+          a.alive = false;
+          hitBoss(world);
+        }
+      }
+      continue;
+    }
+    // Hit the dog?
+    if (Math.abs(a.x - h.x) < HERO_BOX.w / 2 + 6 && a.y > h.y - 4 && a.y < h.y + heroH) {
+      a.alive = false;
+      hurt(world);
+    }
+  }
+  world.acorns = world.acorns.filter((a) => a.alive);
+}
+
+/* ------------------------------------------------------------------ */
+/* Boss                                                                */
+/* ------------------------------------------------------------------ */
+
+function stepBoss(world: World, dt: number) {
+  const b = world.boss;
+  const def = world.level.boss;
+  if (!b || !def) return;
+  const h = world.hero;
+  b.t += dt;
+  b.throwing = Math.max(0, b.throwing - dt);
+  b.hurtT = Math.max(0, b.hurtT - dt);
+
+  if (b.phase === 'waiting') {
+    if (h.x >= def.x) {
+      b.phase = 'intro';
+      b.t = 0;
+      b.x = h.x + BOSS_LEAD + 260;
+      world.phase = 'boss';
+      world.phaseT = 0;
+      // Clear the run-up so the chase is the only thing on screen.
+      world.enemies = world.enemies.filter((e) => e.x < h.x - 60);
+      emit(world, { type: 'boss_start' });
+      emit(world, { type: 'music', name: 'music_boss' });
+      sfx(world, 'boss_laugh');
+    }
+    return;
+  }
+  if (b.phase === 'gone') return;
+
+  // Hop along ahead of the dog.
+  const targetX = h.x + BOSS_LEAD;
+  if (b.phase === 'defeated') {
+    b.x += (h.x + BOSS_LEAD - 40 - b.x) * Math.min(1, dt * 2);
+  } else {
+    b.x += (targetX - b.x) * Math.min(1, dt * (b.phase === 'intro' ? 1.5 : 4));
+  }
+  b.vy -= PHYS.gravity * 0.7 * dt;
+  b.y += b.vy * dt;
+  if (b.y <= 0) {
+    b.y = 0;
+    b.vy = b.phase === 'defeated' ? 0 : 260 + world.rng() * 140;
+  }
+
+  if (b.phase === 'intro') {
+    if (b.t > 1.4) {
+      b.phase = 'fight';
+      b.t = 0;
+      b.throwT = 0.6;
+    }
+    return;
+  }
+  if (b.phase === 'hurt') {
+    if (b.t > 0.9) {
+      b.phase = 'fight';
+      b.t = 0;
+      b.throwT = 0.5;
+    }
+    return;
+  }
+  if (b.phase === 'defeated') {
+    if (b.t > 2.4) {
+      b.phase = 'gone';
+    }
+    return;
+  }
+
+  // Fight: a short loop of normal throws and one golden roller to bark back.
+  b.throwT -= dt;
+  if (b.throwT <= 0) {
+    const step = b.pattern % 4;
+    b.pattern++;
+    b.throwing = 0.35;
+    if (step === 3) {
+      // Golden acorn rolls along the floor: bark it back!
+      world.acorns.push({
+        x: b.x - 40,
+        y: 0,
+        vx: -260,
+        vy: 0,
+        golden: true,
+        rolling: true,
+        reflected: false,
+        alive: true,
+        spin: 0,
+      });
+      sfx(world, 'acorn_throw');
+      if (b.hits === 0 && b.pattern < 5) emit(world, { type: 'callout', coach: 'leo', text: 'Golden acorn! Bark it back!' });
+      b.throwT = 1.5;
+    } else {
+      throwAcorn(world, b.x - 30, b.y + 90, h, false);
+      b.throwT = Math.max(0.75, 1.15 - b.hits * 0.15);
+    }
+  }
+}
+
+function hitBoss(world: World) {
+  const b = world.boss!;
+  b.hits += 1;
+  b.hurtT = 0.6;
+  world.shake = 0.8;
+  sfx(world, 'boss_hit');
+  haptic(world, 'heavy');
+  for (let i = 0; i < 10; i++) spark(world, b.x, b.y + 80, 'star');
+  emit(world, { type: 'boss_hit', hits: b.hits, needed: b.hitsNeeded });
+  if (b.hits >= b.hitsNeeded) {
+    b.phase = 'defeated';
+    b.t = 0;
+    world.acorns = [];
+    emit(world, { type: 'boss_defeated' });
+    win(world);
+  } else {
+    b.phase = 'hurt';
+    b.t = 0;
+  }
+}
+
+function win(world: World) {
+  if (world.phase === 'won') return;
+  world.phase = 'won';
+  world.phaseT = 0;
+  sfx(world, 'victory');
+  haptic(world, 'success');
+  emit(world, { type: 'music', name: 'none' });
+  const h = world.hero;
+  for (let i = 0; i < 60; i++) confetti(world, h.x + 120 + world.rng() * 200, 340);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pickups, cages, checkpoints, callouts                               */
+/* ------------------------------------------------------------------ */
+
+function collectPickups(world: World, dt: number) {
+  const h = world.hero;
+  for (const p of world.pickups) {
+    if (p.taken) {
+      p.takenT += dt;
+      continue;
+    }
+    if (Math.abs(p.x - h.x) < 34 && p.y + 10 > h.y - 6 && p.y < h.y + HERO_BOX.h + 10) {
+      p.taken = true;
+      if (p.kind === 'bone') {
+        world.bones += 1;
+        sfx(world, 'bone');
+        haptic(world, 'selection');
+      } else if (p.kind === 'bone_gold') {
+        world.goldBones += 1;
+        sfx(world, 'bone_gold');
+        haptic(world, 'success');
+        for (let i = 0; i < 8; i++) spark(world, p.x, p.y, 'star');
+      } else {
+        world.bones += 5;
+        sfx(world, 'bone_gold');
+        for (let i = 0; i < 16; i++) confetti(world, p.x, p.y + 20);
+      }
+    }
+  }
+}
+
+function openCages(world: World) {
+  const h = world.hero;
+  for (const c of world.cages) {
+    if (c.open) continue;
+    if (Math.abs(c.x + 42 - h.x) < 50 && h.y < c.y + 80 && h.y + HERO_BOX.h > c.y) {
+      c.open = true;
+      world.followers.push(c.dog);
+      sfx(world, 'cage_open');
+      sfx(world, 'rescue');
+      haptic(world, 'success');
+      emit(world, { type: 'rescue', dog: c.dog });
+      for (let i = 0; i < 24; i++) confetti(world, c.x + 42, c.y + 60);
+      for (let i = 0; i < 6; i++) spark(world, c.x + 42, c.y + 50, 'heart');
+    }
+  }
+}
+
+function passCheckpoints(world: World) {
+  for (const c of world.checkpoints) {
+    if (!c.reached && world.hero.x >= c.x) {
+      c.reached = true;
+      world.respawnX = c.x;
+      sfx(world, 'checkpoint');
+      emit(world, { type: 'checkpoint' });
+      for (let i = 0; i < 12; i++) confetti(world, c.x, 90);
+    }
+  }
+}
+
+function fireCallouts(world: World) {
+  for (const c of world.callouts) {
+    if (!c.done && world.hero.x >= c.x) {
+      c.done = true;
+      emit(world, { type: 'callout', coach: c.coach, text: c.text });
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Particles                                                           */
+/* ------------------------------------------------------------------ */
+
+function dust(world: World, x: number, y: number, n: number) {
+  for (let i = 0; i < n; i++) {
+    world.particles.push({
+      sprite: 'dust_0',
+      frames: ['dust_0', 'dust_1', 'dust_2'],
+      x: x - 10 + world.rng() * 20,
+      y,
+      vx: -60 - world.rng() * 80,
+      vy: 20 + world.rng() * 40,
+      gravity: 0,
+      life: 0.4,
+      maxLife: 0.4,
+      rot: 0,
+      vr: 0,
+      scale: 0.8 + world.rng() * 0.6,
+    });
+  }
+}
+
+function spark(world: World, x: number, y: number, sprite: SpriteName) {
+  const a = world.rng() * Math.PI * 2;
+  const s = 120 + world.rng() * 180;
+  world.particles.push({
+    sprite,
+    x,
+    y,
+    vx: Math.cos(a) * s + world.level.runSpeed * 0.6,
+    vy: Math.abs(Math.sin(a)) * s + 80,
+    gravity: 600,
+    life: 0.7,
+    maxLife: 0.7,
+    rot: world.rng() * 6,
+    vr: (world.rng() - 0.5) * 10,
+    scale: 0.8 + world.rng() * 0.5,
+  });
+}
+
+function confetti(world: World, x: number, y: number) {
+  world.particles.push({
+    sprite: 'star',
+    color: CONFETTI[Math.floor(world.rng() * CONFETTI.length)],
+    x,
+    y,
+    vx: (world.rng() - 0.5) * 360,
+    vy: 160 + world.rng() * 320,
+    gravity: 520,
+    life: 1.6 + world.rng() * 0.8,
+    maxLife: 2.4,
+    rot: world.rng() * 6,
+    vr: (world.rng() - 0.5) * 16,
+    scale: 1,
+  });
+}
+
+function stepParticles(world: World, dt: number) {
+  for (const p of world.particles) {
+    p.life -= dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy -= p.gravity * dt;
+    p.rot += p.vr * dt;
+    if (p.frames) {
+      const k = 1 - p.life / p.maxLife;
+      p.sprite = p.frames[Math.min(p.frames.length - 1, Math.floor(k * p.frames.length))];
+    }
+  }
+  world.particles = world.particles.filter((p) => p.life > 0);
+  if (world.particles.length > 260) world.particles.splice(0, world.particles.length - 260);
+}
+
+/* ------------------------------------------------------------------ */
+/* Results                                                             */
+/* ------------------------------------------------------------------ */
+
+export interface LevelResult {
+  bones: number;
+  bonesTotal: number;
+  goldBones: number;
+  goldTotal: number;
+  rescued: number;
+  rescueTotal: number;
+  stars: number;
+  time: number;
+}
+
+/** One star for finishing, one for 80% of the bones, one for every golden bone. */
+export function levelResult(world: World): LevelResult {
+  const bonesOk = world.bonesTotal === 0 || world.bones >= Math.ceil(world.bonesTotal * 0.8);
+  const goldOk = world.goldBones >= world.goldTotal;
+  return {
+    bones: world.bones,
+    bonesTotal: world.bonesTotal,
+    goldBones: world.goldBones,
+    goldTotal: world.goldTotal,
+    rescued: world.followers.length,
+    rescueTotal: world.cages.length,
+    stars: 1 + (bonesOk ? 1 : 0) + (goldOk ? 1 : 0),
+    time: world.t,
+  };
+}
+
+/** Hands the host the events from the last steps and clears them. */
+export function drainEvents(world: World): GameEvent[] {
+  const out = world.events;
+  world.events = [];
+  return out;
+}
+
+export type { Acorn, Boss, Particle };

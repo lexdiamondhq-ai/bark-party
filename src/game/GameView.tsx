@@ -1,0 +1,536 @@
+import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type GestureResponderEvent,
+} from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SlideInLeft,
+  SlideOutLeft,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+  ZoomIn,
+} from 'react-native-reanimated';
+
+import { colors, fonts, springs } from '../theme/tokens';
+import { initAudio, pauseMusic, playMusic, playSfx, preloadSfx, isMuted, setMuted } from './audio';
+import { COACH_CHEER, DOGS, ROOMS, ROOM_SIZE } from './art';
+import { MAX_HEARTS, VIEW_H } from './constants';
+import type { CoachId, LevelDef } from './level/types';
+import { GameCanvas } from './render/GameCanvas';
+import { ATLAS_PAGES } from './render/atlasImages';
+import atlas from './render/atlas.json';
+import { buildFrame, OpList, type AtlasData } from './render/buildFrame';
+import { NO_INPUT, type GameEvent, type Input } from './sim/types';
+import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, stepWorld, type LevelResult } from './sim/world';
+import type { DogId } from './sprites';
+import { BOSS_NAME, DOG_NAMES } from './story';
+
+const STEP = 1 / 60;
+
+function createStartWorld(level: LevelDef, viewW: number, startX?: number) {
+  const w = createWorld(level, viewW, 11);
+  if (startX && __DEV__) {
+    w.hero.x = startX;
+    w.respawnX = startX;
+    w.camX = cameraTarget(w);
+  }
+  return w;
+}
+const SWIPE_DOWN = 26;
+const BARK_SIZE = 96;
+
+type Props = {
+  level: LevelDef;
+  onWin: (result: LevelResult) => void;
+  onQuit: () => void;
+  /** Development only: start the run at this x (for testing later parts of a level). */
+  startX?: number;
+};
+
+type Callout = { key: number; coach?: CoachId; dog?: DogId; text: string };
+
+export function GameView({ level, onWin, onQuit, startX }: Props) {
+  const { width, height } = useWindowDimensions();
+  const k = height / VIEW_H;
+  const viewW = width / k;
+
+  const world = useRef(createStartWorld(level, viewW, startX)).current;
+  const ops = useSharedValue<number[]>([]);
+  const input = useRef<Input>({ ...NO_INPUT });
+  const jumpTouch = useRef<{ id: string; y: number; slid: boolean } | null>(null);
+  const paused = useRef(false);
+  const reduceMotion = useRef(false);
+  const doneRef = useRef(false);
+
+  const [hearts, setHearts] = useState(MAX_HEARTS);
+  const [bones, setBones] = useState(0);
+  const [friends, setFriends] = useState<DogId[]>([]);
+  const [callout, setCallout] = useState<Callout | null>(null);
+  const [boss, setBoss] = useState<{ hits: number; needed: number } | null>(null);
+  const [banner, setBanner] = useState<{ key: number; text: string } | null>(null);
+  const [gameOver, setGameOver] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [muted, setMutedState] = useState(isMuted());
+
+  const barkScale = useSharedValue(1);
+  const barkStyle = useAnimatedStyle(() => ({ transform: [{ scale: barkScale.value }] }));
+  const boneBump = useSharedValue(1);
+  const boneStyle = useAnimatedStyle(() => ({ transform: [{ scale: boneBump.value }] }));
+
+  useEffect(() => {
+    world.viewW = viewW;
+  }, [viewW, world]);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((v) => (reduceMotion.current = v))
+      .catch(() => {});
+    initAudio();
+    preloadSfx();
+    playMusic(level.music);
+    return () => playMusic('none');
+  }, [level.music]);
+
+  const calloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showCallout = useCallback((c: Omit<Callout, 'key'>, ms = 2800) => {
+    setCallout({ ...c, key: Date.now() });
+    if (calloutTimer.current) clearTimeout(calloutTimer.current);
+    calloutTimer.current = setTimeout(() => setCallout(null), ms);
+  }, []);
+  const showBanner = useCallback((text: string) => {
+    setBanner({ key: Date.now(), text });
+    setTimeout(() => setBanner(null), 1800);
+  }, []);
+
+  const handleEvents = useCallback(
+    (events: GameEvent[]) => {
+      for (const e of events) {
+        switch (e.type) {
+          case 'sfx':
+            playSfx(e.name);
+            break;
+          case 'haptic':
+            if (Platform.OS === 'web') break;
+            if (e.kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            else if (e.kind === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+            else if (e.kind === 'selection') Haptics.selectionAsync().catch(() => {});
+            else
+              Haptics.impactAsync(
+                e.kind === 'heavy' ? Haptics.ImpactFeedbackStyle.Heavy : e.kind === 'medium' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+              ).catch(() => {});
+            break;
+          case 'callout':
+            showCallout({ coach: e.coach, text: e.text });
+            break;
+          case 'hurt':
+            setHearts(Math.max(0, e.hearts));
+            break;
+          case 'rescue':
+            setFriends([...world.followers]);
+            showCallout({ dog: e.dog, text: `${DOG_NAMES[e.dog]} is free! Woof!` }, 2200);
+            break;
+          case 'checkpoint':
+            break;
+          case 'boss_start':
+            setBoss({ hits: 0, needed: world.boss?.hitsNeeded ?? 3 });
+            showBanner(BOSS_NAME.toUpperCase() + '!');
+            break;
+          case 'boss_hit':
+            setBoss({ hits: e.hits, needed: e.needed });
+            break;
+          case 'boss_defeated':
+            showBanner('GOT THE CAKE!');
+            break;
+          case 'won':
+            if (!doneRef.current) {
+              doneRef.current = true;
+              onWin(levelResult(world));
+            }
+            break;
+          case 'gameover':
+            setGameOver(true);
+            break;
+          case 'music':
+            playMusic(e.name);
+            break;
+        }
+      }
+    },
+    [onWin, showBanner, showCallout, world],
+  );
+
+  // The game loop: fixed 60 Hz steps on the JS thread, then one frame of draw ops for the UI thread.
+  useEffect(() => {
+    const atlasData = atlas as unknown as AtlasData;
+    const out = new OpList();
+    let raf = 0;
+    let last = 0;
+    let acc = 0;
+    let lastBones = -1;
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (!last) last = now;
+      const elapsed = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (paused.current) return;
+      acc += elapsed;
+      let steps = 0;
+      while (acc >= STEP && steps < 4) {
+        const i = input.current;
+        stepWorld(world, i, STEP);
+        i.jumpPressed = false;
+        i.slidePressed = false;
+        i.barkPressed = false;
+        acc -= STEP;
+        steps++;
+      }
+      if (steps === 4) acc = 0;
+      out.data = [];
+      buildFrame(world, {
+        atlas: atlasData,
+        background: { image: ATLAS_PAGES.length, w: ROOM_SIZE.w, h: ROOM_SIZE.h },
+        k,
+        screenW: width,
+        screenH: height,
+        reduceMotion: reduceMotion.current,
+      }, out);
+      ops.value = out.data;
+      const events = drainEvents(world);
+      if (events.length) handleEvents(events);
+      if (world.bones !== lastBones) {
+        if (lastBones >= 0) boneBump.value = withSequence(withTiming(1.3, { duration: 60 }), withSpring(1, springs.bouncy));
+        lastBones = world.bones;
+        setBones(world.bones);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [boneBump, handleEvents, height, k, ops, width, world]);
+
+  // Keyboard for the web build and the simulator: space or up jumps, down slides, X barks.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const down = (ev: KeyboardEvent) => {
+      if (ev.repeat) return;
+      if (ev.code === 'Space' || ev.code === 'ArrowUp') {
+        input.current.jumpPressed = true;
+        input.current.jumpHeld = true;
+      } else if (ev.code === 'ArrowDown') input.current.slidePressed = true;
+      else if (ev.code === 'KeyX' || ev.code === 'KeyB') input.current.barkPressed = true;
+      else if (ev.code === 'Escape') togglePause();
+    };
+    const up = (ev: KeyboardEvent) => {
+      if (ev.code === 'Space' || ev.code === 'ArrowUp') input.current.jumpHeld = false;
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  });
+
+  const togglePause = () => {
+    paused.current = !paused.current;
+    setIsPaused(paused.current);
+    pauseMusic(paused.current);
+    playSfx('button');
+  };
+
+  // Touch: tap anywhere to jump (hold for higher), swipe down to slide.
+  const onTouchStart = (e: GestureResponderEvent) => {
+    for (const t of e.nativeEvent.changedTouches) {
+      if (jumpTouch.current) continue;
+      jumpTouch.current = { id: String(t.identifier), y: t.pageY, slid: false };
+      input.current.jumpPressed = true;
+      input.current.jumpHeld = true;
+    }
+  };
+  const onTouchMove = (e: GestureResponderEvent) => {
+    const jt = jumpTouch.current;
+    if (!jt || jt.slid) return;
+    for (const t of e.nativeEvent.changedTouches) {
+      if (String(t.identifier) !== jt.id) continue;
+      if (t.pageY - jt.y > SWIPE_DOWN) {
+        jt.slid = true;
+        input.current.slidePressed = true;
+        input.current.jumpHeld = false;
+      }
+    }
+  };
+  const onTouchEnd = (e: GestureResponderEvent) => {
+    const jt = jumpTouch.current;
+    if (!jt) return;
+    for (const t of e.nativeEvent.changedTouches) {
+      if (String(t.identifier) === jt.id) {
+        jumpTouch.current = null;
+        input.current.jumpHeld = false;
+      }
+    }
+  };
+
+  const bark = () => {
+    input.current.barkPressed = true;
+    barkScale.value = withSequence(withTiming(0.86, { duration: 50 }), withSpring(1, springs.squish));
+  };
+
+  const retry = () => {
+    continueFromCheckpoint(world);
+    drainEvents(world);
+    setHearts(world.hero.hearts);
+    setGameOver(false);
+    playMusic(world.phase === 'boss' ? 'music_boss' : level.music);
+  };
+
+  const pad = Math.max(16, width * 0.03);
+
+  return (
+    <View style={styles.root}>
+      <View
+        style={StyleSheet.absoluteFill}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+      >
+        <GameCanvas ops={ops} width={width} height={height} background={ROOMS[level.background]} />
+      </View>
+
+      {/* HUD */}
+      <View pointerEvents="box-none" style={[styles.hud, { left: pad, top: 12 }]}>
+        <View style={styles.hudRow} pointerEvents="none">
+          {Array.from({ length: MAX_HEARTS }, (_, i) => (
+            <Text key={i} style={[styles.heart, { opacity: i < hearts ? 1 : 0.25 }]}>
+              ♥
+            </Text>
+          ))}
+        </View>
+        <Animated.View style={[styles.chip, boneStyle]} pointerEvents="none">
+          <Text style={styles.boneIcon}>🦴</Text>
+          <Text style={styles.chipText}>{bones}</Text>
+        </Animated.View>
+        <View style={styles.hudRow} pointerEvents="none">
+          {friends.map((d) => (
+            <Image key={d} source={DOGS[d]} style={styles.friend} />
+          ))}
+        </View>
+      </View>
+
+      {boss && (
+        <Animated.View entering={FadeIn} pointerEvents="none" style={[styles.bossBar, { bottom: 14 }]}>
+          <Text style={styles.bossName}>{BOSS_NAME}</Text>
+          <View style={styles.hudRow}>
+            {Array.from({ length: boss.needed }, (_, i) => (
+              <View key={i} style={[styles.pip, i < boss.needed - boss.hits ? styles.pipFull : null]} />
+            ))}
+          </View>
+        </Animated.View>
+      )}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Pause"
+        onPress={togglePause}
+        style={[styles.pause, { right: pad, top: 12 }]}
+        hitSlop={12}
+      >
+        <Text style={styles.pauseText}>II</Text>
+      </Pressable>
+
+      {/* Bark button */}
+      <Animated.View style={[styles.barkWrap, { right: pad + 8, bottom: 20 }, barkStyle]}>
+        <View
+          accessibilityRole="button"
+          accessibilityLabel="Bark"
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            bark();
+          }}
+          style={styles.bark}
+        >
+          <Text style={styles.barkText}>BARK!</Text>
+        </View>
+      </Animated.View>
+
+      {callout && (
+        <Animated.View
+          key={callout.key}
+          entering={SlideInLeft.springify().damping(16)}
+          exiting={SlideOutLeft.duration(200)}
+          pointerEvents="none"
+          style={[styles.callout, { left: pad + 150, top: 8 }]}
+        >
+          <Image
+            source={callout.coach ? COACH_CHEER[callout.coach] : DOGS[callout.dog!]}
+            style={callout.coach ? styles.calloutCoach : styles.calloutDog}
+            resizeMode="contain"
+          />
+          <View style={styles.bubble}>
+            <Text style={styles.bubbleText}>{callout.text}</Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {banner && (
+        <Animated.View key={banner.key} entering={ZoomIn.springify().damping(10)} exiting={FadeOut} pointerEvents="none" style={styles.bannerWrap}>
+          <Text style={styles.banner}>{banner.text}</Text>
+        </Animated.View>
+      )}
+
+      {(isPaused || gameOver) && (
+        <Animated.View entering={FadeIn.duration(150)} style={styles.scrim}>
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>{gameOver ? 'Ruh-roh!' : 'Paused'}</Text>
+            {gameOver && <Text style={styles.panelBody}>Shake it off and try again from the last balloon post.</Text>}
+            <Pressable style={[styles.btn, styles.btnGold]} onPress={gameOver ? retry : togglePause}>
+              <Text style={styles.btnTextDark}>{gameOver ? 'Try again' : 'Keep running'}</Text>
+            </Pressable>
+            {!gameOver && (
+              <Pressable
+                style={[styles.btn, styles.btnGlass]}
+                onPress={() => {
+                  setMuted(!muted);
+                  setMutedState(!muted);
+                }}
+              >
+                <Text style={styles.btnText}>{muted ? 'Sound: off' : 'Sound: on'}</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={[styles.btn, styles.btnGlass]}
+              onPress={() => {
+                paused.current = true;
+                playMusic('none');
+                onQuit();
+              }}
+            >
+              <Text style={styles.btnText}>Quit to title</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.velvetNight, overflow: 'hidden' },
+  hud: { position: 'absolute', gap: 6 },
+  hudRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  heart: {
+    fontSize: 30,
+    color: colors.bubblegum,
+    textShadowColor: colors.cocoa,
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 0,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.marshmallow,
+    borderColor: colors.cocoa,
+    borderWidth: 2.5,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    gap: 6,
+  },
+  boneIcon: { fontSize: 18 },
+  chipText: { fontFamily: fonts.display, fontSize: 24, color: colors.cocoa },
+  friend: { width: 34, height: 34, resizeMode: 'contain' },
+  bossBar: {
+    position: 'absolute',
+    alignSelf: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(26,15,11,0.55)',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 4,
+  },
+  bossName: { fontFamily: fonts.display, fontSize: 24, color: colors.marshmallow },
+  pip: { width: 26, height: 12, borderRadius: 6, borderWidth: 2, borderColor: colors.marshmallow },
+  pipFull: { backgroundColor: colors.tomato },
+  pause: {
+    position: 'absolute',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,244,226,0.18)',
+    borderColor: 'rgba(255,244,226,0.5)',
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pauseText: { fontFamily: fonts.bodyHeavy, fontSize: 18, color: colors.marshmallow },
+  barkWrap: { position: 'absolute' },
+  bark: {
+    width: BARK_SIZE,
+    height: BARK_SIZE,
+    borderRadius: BARK_SIZE / 2,
+    backgroundColor: colors.biscuitGold,
+    borderColor: colors.cocoa,
+    borderWidth: 3,
+    borderBottomWidth: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  barkText: { fontFamily: fonts.display, fontSize: 24, color: colors.cocoa, transform: [{ rotate: '-6deg' }] },
+  callout: { position: 'absolute', flexDirection: 'row', alignItems: 'flex-end', maxWidth: 440 },
+  calloutCoach: { width: 44, height: 80 },
+  calloutDog: { width: 56, height: 56 },
+  bubble: {
+    marginLeft: 2,
+    marginBottom: 8,
+    backgroundColor: colors.marshmallow,
+    borderColor: colors.cocoa,
+    borderWidth: 2.5,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    flexShrink: 1,
+  },
+  bubbleText: { fontFamily: fonts.bodyHeavy, fontSize: 17, color: colors.cocoa },
+  bannerWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
+  banner: {
+    fontFamily: fonts.display,
+    fontSize: 64,
+    color: colors.biscuitGold,
+    textShadowColor: colors.cocoa,
+    textShadowOffset: { width: 0, height: 5 },
+    textShadowRadius: 0,
+    transform: [{ rotate: '-6deg' }],
+  },
+  scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(20,10,31,0.72)', alignItems: 'center', justifyContent: 'center' },
+  panel: {
+    backgroundColor: 'rgba(255,244,226,0.12)',
+    borderColor: 'rgba(255,244,226,0.35)',
+    borderWidth: 2,
+    borderRadius: 28,
+    padding: 22,
+    gap: 12,
+    alignItems: 'center',
+    minWidth: 320,
+  },
+  panelTitle: { fontFamily: fonts.display, fontSize: 44, color: colors.marshmallow },
+  panelBody: { fontFamily: fonts.body, fontSize: 17, color: colors.marshmallow, textAlign: 'center', maxWidth: 300 },
+  btn: { minWidth: 240, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 2.5 },
+  btnGold: { backgroundColor: colors.biscuitGold, borderColor: colors.cocoa, borderBottomWidth: 6 },
+  btnGlass: { backgroundColor: 'rgba(255,244,226,0.14)', borderColor: 'rgba(255,244,226,0.35)' },
+  btnText: { fontFamily: fonts.bodyHeavy, fontSize: 20, color: colors.marshmallow },
+  btnTextDark: { fontFamily: fonts.bodyHeavy, fontSize: 20, color: colors.cocoa },
+});

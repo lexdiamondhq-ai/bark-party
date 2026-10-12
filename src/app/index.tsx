@@ -1,38 +1,89 @@
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect } from 'react';
+import { Image, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
-import { JellyButton } from '../components/JellyButton';
-import { DISPLAY_MIN_PT, colors, fonts, typeScale } from '../theme/tokens';
+import { DOGS, PUP, ROOMS } from '../game/art';
+import { initAudio, playMusic, playSfx } from '../game/audio';
+import { colors, fonts } from '../theme/tokens';
 
-export default function Home() {
+export default function Title() {
+  const { width } = useWindowDimensions();
+  const run = useSharedValue(0);
+  const hop = useSharedValue(0);
+  const logo = useSharedValue(0);
+
+  useEffect(() => {
+    initAudio();
+    playMusic('music_menu');
+    run.value = withRepeat(withTiming(1, { duration: 6000, easing: Easing.linear }), -1, false);
+    hop.value = withRepeat(withSequence(withTiming(1, { duration: 170 }), withTiming(0, { duration: 170 })), -1, false);
+    logo.value = withRepeat(withSequence(withTiming(1, { duration: 900 }), withTiming(0, { duration: 900 })), -1, true);
+  }, [hop, logo, run]);
+
+  // The pup gallops across the bottom with friends in tow.
+  const runStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -260 + run.value * (width + 420) }] }));
+  const hopStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -hop.value * 10 }, { rotate: `${(hop.value - 0.5) * 8}deg` }],
+  }));
+  const logoStyle = useAnimatedStyle(() => ({ transform: [{ rotate: '-6deg' }, { scale: 1 + logo.value * 0.04 }] }));
+
+  const start = () => {
+    playSfx('bark');
+    router.push({ pathname: '/story', params: { scene: 'ch1_intro' } });
+  };
+
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.hero}>
-        <Text style={styles.logo} accessibilityRole="header">
-          Bark Party
-        </Text>
-        <Text style={styles.tag}>Three-second dog games. One phone, up to six players.</Text>
-      </View>
+    <ImageBackground source={ROOMS.room_yard} style={styles.root} resizeMode="cover" imageStyle={{ width: '100%', height: '100%' }}>
+      <View style={styles.scrim} />
+      <Animated.Text style={[styles.logo, logoStyle]} accessibilityRole="header">
+        Dog Runner
+      </Animated.Text>
+      <Text style={styles.tag}>Chapter 1: The Living Room</Text>
       <View style={styles.actions}>
-        {/* The party lobby is the next build step; Party points at the rules preview until then. */}
-        <JellyButton gold label="Party" onPress={() => router.push('/preview?mode=party')} />
-        <JellyButton label="Solo" onPress={() => router.push('/preview?mode=solo')} />
+        <Pressable style={[styles.btn, styles.gold]} onPress={start} accessibilityRole="button">
+          <Text style={styles.btnDark}>Play</Text>
+        </Pressable>
+        <Pressable style={[styles.btn, styles.glass]} onPress={() => router.push('/play')} accessibilityRole="button">
+          <Text style={styles.btnLight}>Skip story</Text>
+        </Pressable>
       </View>
-    </SafeAreaView>
+
+      <Animated.View style={[styles.parade, runStyle]} pointerEvents="none">
+        <Animated.View style={hopStyle}>
+          <Image source={DOGS.husky} style={styles.dog} />
+        </Animated.View>
+        <Animated.View style={hopStyle}>
+          <Image source={DOGS.frenchie} style={styles.dog} />
+        </Animated.View>
+        <Animated.View style={hopStyle}>
+          <Image source={PUP.walk} style={styles.pup} />
+        </Animated.View>
+      </Animated.View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.velvetNight, justifyContent: 'space-between', padding: 24 },
-  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  root: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(20,10,31,0.35)' },
   logo: {
     fontFamily: fonts.display,
-    fontSize: Math.max(DISPLAY_MIN_PT, 64),
-    lineHeight: 72,
+    fontSize: 76,
+    lineHeight: 86,
     color: colors.biscuitGold,
-    transform: [{ rotate: '-6deg' }],
+    textShadowColor: colors.cocoa,
+    textShadowOffset: { width: 0, height: 6 },
+    textShadowRadius: 0,
   },
-  tag: { fontFamily: fonts.body, fontSize: typeScale.body[0], lineHeight: typeScale.body[1], color: colors.marshmallow, textAlign: 'center' },
-  actions: { alignItems: 'center', gap: 16, paddingBottom: 24 },
+  tag: { fontFamily: fonts.bodyHeavy, fontSize: 18, color: colors.marshmallow, marginBottom: 10 },
+  actions: { flexDirection: 'row', gap: 14, marginBottom: 70 },
+  btn: { minWidth: 170, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 2.5 },
+  gold: { backgroundColor: colors.biscuitGold, borderColor: colors.cocoa, borderBottomWidth: 6 },
+  glass: { backgroundColor: 'rgba(255,244,226,0.14)', borderColor: 'rgba(255,244,226,0.35)' },
+  btnDark: { fontFamily: fonts.bodyHeavy, fontSize: 22, color: colors.cocoa },
+  btnLight: { fontFamily: fonts.bodyHeavy, fontSize: 20, color: colors.marshmallow },
+  parade: { position: 'absolute', left: 0, bottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
+  dog: { width: 64, height: 64, resizeMode: 'contain' },
+  pup: { width: 104, height: 92, resizeMode: 'contain' },
 });

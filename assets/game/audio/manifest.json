@@ -1,0 +1,155 @@
+{
+  "acorn_hit.m4a": {
+    "seconds": 0.16,
+    "loop": false,
+    "samples": 7056
+  },
+  "acorn_throw.m4a": {
+    "seconds": 0.3,
+    "loop": false,
+    "samples": 13230
+  },
+  "bark.m4a": {
+    "seconds": 0.26,
+    "loop": false,
+    "samples": 11466
+  },
+  "bark_big.m4a": {
+    "seconds": 0.78,
+    "loop": false,
+    "samples": 34398
+  },
+  "blip.m4a": {
+    "seconds": 0.04,
+    "loop": false,
+    "samples": 1764
+  },
+  "bone.m4a": {
+    "seconds": 0.42,
+    "loop": false,
+    "samples": 18522
+  },
+  "bone_gold.m4a": {
+    "seconds": 1.0,
+    "loop": false,
+    "samples": 44100
+  },
+  "boss_hit.m4a": {
+    "seconds": 0.62,
+    "loop": false,
+    "samples": 27342
+  },
+  "boss_laugh.m4a": {
+    "seconds": 0.9,
+    "loop": false,
+    "samples": 39690
+  },
+  "button.m4a": {
+    "seconds": 0.09,
+    "loop": false,
+    "samples": 3969
+  },
+  "cage_open.m4a": {
+    "seconds": 1.15,
+    "loop": false,
+    "samples": 50715
+  },
+  "cat_hiss.m4a": {
+    "seconds": 0.75,
+    "loop": false,
+    "samples": 33075
+  },
+  "checkpoint.m4a": {
+    "seconds": 1.45,
+    "loop": false,
+    "samples": 63945
+  },
+  "double_jump.m4a": {
+    "seconds": 0.42,
+    "loop": false,
+    "samples": 18522
+  },
+  "game_over.m4a": {
+    "seconds": 2.5,
+    "loop": false,
+    "samples": 110250
+  },
+  "hurt.m4a": {
+    "seconds": 0.55,
+    "loop": false,
+    "samples": 24255
+  },
+  "jump.m4a": {
+    "seconds": 0.26,
+    "loop": false,
+    "samples": 11466
+  },
+  "land.m4a": {
+    "seconds": 0.2,
+    "loop": false,
+    "samples": 8820
+  },
+  "music_boss.m4a": {
+    "seconds": 25.6,
+    "loop": true,
+    "samples": 1128960,
+    "bpm": 150,
+    "bars": 16
+  },
+  "music_living.m4a": {
+    "seconds": 58.182,
+    "loop": true,
+    "samples": 2565818,
+    "bpm": 132,
+    "bars": 32
+  },
+  "music_menu.m4a": {
+    "seconds": 38.4,
+    "loop": true,
+    "samples": 1693440,
+    "bpm": 100,
+    "bars": 16
+  },
+  "music_story.m4a": {
+    "seconds": 43.636,
+    "loop": true,
+    "samples": 1924364,
+    "bpm": 88,
+    "bars": 16
+  },
+  "rescue.m4a": {
+    "seconds": 2.0,
+    "loop": false,
+    "samples": 88200
+  },
+  "slide.m4a": {
+    "seconds": 0.32,
+    "loop": false,
+    "samples": 14112
+  },
+  "squirrel_chitter.m4a": {
+    "seconds": 0.5,
+    "loop": false,
+    "samples": 22050
+  },
+  "squirrel_stun.m4a": {
+    "seconds": 1.05,
+    "loop": false,
+    "samples": 46305
+  },
+  "vacuum.m4a": {
+    "seconds": 1.0,
+    "loop": true,
+    "samples": 44100
+  },
+  "victory.m4a": {
+    "seconds": 4.0,
+    "loop": false,
+    "samples": 176400
+  },
+  "whoosh.m4a": {
+    "seconds": 0.7,
+    "loop": false,
+    "samples": 30870
+  }
+}
