@@ -4,7 +4,8 @@
 import { FLOOR_SCREEN_Y } from '../constants';
 import { SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD } from '../sim/world';
-import type { World } from '../sim/types';
+import type { Hero, World } from '../sim/types';
+import { TUCK_DOWN, TUCK_UP, puppetPose } from './pupPose';
 
 /**
  * One draw op is STRIDE numbers:
@@ -31,6 +32,17 @@ export interface FrameSetup {
   screenW: number;
   screenH: number;
   reduceMotion?: boolean;
+  /** How far the frame sits between the previous step (0) and the current one (1). Default 1. */
+  alpha?: number;
+  /** Development: filled in with the hero frames actually drawn, for the frame-rate probe. */
+  probe?: PupProbe;
+}
+
+export interface PupProbe {
+  legA: number;
+  legB: number;
+  legT: number;
+  tuckT: number;
 }
 
 export class OpList {
@@ -66,10 +78,19 @@ export function hexToInt(hex: string): number {
 
 export function buildFrame(world: World, setup: FrameSetup, out = new OpList()): OpList {
   const { atlas, k, screenW, screenH } = setup;
+  const a = Math.min(1, Math.max(0, setup.alpha ?? 1));
+  const lerp = (p: number, c: number) => p + (c - p) * a;
+  const prev = world.prev;
+  const hero = world.hero;
+  // The hero, camera and clock sit between the last two steps, so a display faster than the
+  // simulation still draws a different picture every frame.
+  const t = lerp(prev.t, world.t);
+  const heroX = lerp(prev.x, hero.x);
+  const heroY = lerp(prev.y, hero.y);
+  const stride = lerp(prev.stride, hero.stride < prev.stride ? hero.stride + 1 : hero.stride) % 1;
   const shake = setup.reduceMotion ? 0 : world.shake;
-  const camX = world.camX + Math.sin(world.t * 83) * shake * 7;
-  const camY = Math.cos(world.t * 71) * shake * 5;
-  const t = world.t;
+  const camX = lerp(prev.camX, world.camX) + Math.sin(t * 83) * shake * 7;
+  const camY = Math.cos(t * 71) * shake * 5;
 
   const sx = (x: number) => (x - camX) * k;
   const sy = (y: number) => (FLOOR_SCREEN_Y - y + camY) * k;
@@ -221,10 +242,16 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     sprite(dogSprite(dog), p.x - 30 - i * 6, y, { scale: 0.92, syScale: squash, sxScale: 1 / Math.sqrt(squash) });
   });
 
-  drawHero(world, sprite, (name, cx, cy, w, h, rot, alpha) => {
-    const f = atlas.frames[name];
-    if (f) out.push(f[0], f[1], f[2], f[3], f[4], sx(cx), sy(cy), w * k, h * k, rot, alpha, 0);
-  });
+  drawHero(
+    world,
+    { x: heroX, y: heroY, stride, t },
+    sprite,
+    (name, cx, cy, w, h, rot, alpha) => {
+      const f = atlas.frames[name];
+      if (f) out.push(f[0], f[1], f[2], f[3], f[4], sx(cx), sy(cy), w * k, h * k, rot, alpha, 0);
+    },
+    setup.probe,
+  );
 
   // The boss.
   const b = world.boss;
@@ -268,38 +295,76 @@ type PartFn = (name: SpriteName, cx: number, cy: number, w: number, h: number, r
 // The Dog Better puppet: pieces placed in the walking sticker's 802 x 714 px canvas (pupFrames.json).
 const PUP_CANVAS = { w: 802, h: 714 };
 const PUP_S = SPRITES.pup_base.w / PUP_CANVAS.w;
+const BASE_BOX = [0, 0, PUP_CANVAS.w, PUP_CANVAS.h];
 const LEGS_BOX = [6, 420, 728, 714];
 const TAIL_BOX = [72, 229, 292, 392];
-const LEG_FRAMES = 25;
-const TAIL_FRAMES = 11;
 
-function drawPuppet(
-  part: PartFn,
-  x: number,
-  y: number,
-  o: { rot: number; alpha: number; sxScale: number; syScale: number; legs: SpriteName; tail: number },
-) {
+/** One piece of the puppet: a frame, the canvas box it was cut from, and how much of it shows. */
+interface PupLayer {
+  name: SpriteName;
+  box: number[];
+  alpha: number;
+}
+
+function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha: number; sxScale: number; syScale: number }, layers: PupLayer[]) {
   const H = SPRITES.pup_base.h * o.syScale;
   const cos = Math.cos(o.rot);
   const sin = Math.sin(o.rot);
   // Place a piece by its box in canvas px: squash about the paws, then turn about the pup's middle.
-  const place = (name: SpriteName, box: number[]) => {
+  for (const l of layers) {
+    const alpha = o.alpha * l.alpha;
+    if (alpha <= 0.01) continue;
+    const box = l.box;
     const bx = ((box[0] + box[2]) / 2 - PUP_CANVAS.w / 2) * PUP_S * o.sxScale;
     const by = (PUP_CANVAS.h - (box[1] + box[3]) / 2) * PUP_S * o.syScale - H / 2;
     const w = (box[2] - box[0]) * PUP_S * o.sxScale;
     const h = (box[3] - box[1]) * PUP_S * o.syScale;
     // Screen rotation is clockwise for positive angles; in world space (y up) that is the inverse turn.
-    part(name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, o.alpha);
-  };
-  place('pup_base', [0, 0, PUP_CANVAS.w, PUP_CANVAS.h]);
-  place(`pup_tail_${o.tail}` as SpriteName, TAIL_BOX);
-  place(o.legs, LEGS_BOX);
+    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, alpha);
+  }
 }
 
-function drawHero(world: World, sprite: SpriteFn, part: PartFn) {
+const leg = (i: number): SpriteName => `pup_leg_${i}` as SpriteName;
+const tail = (i: number): SpriteName => `pup_tail_${i}` as SpriteName;
+
+/** The puppet's layers for a hero state: tail wag, stride, tuck in the air and rest when blocked, each blended, never cut. */
+export function puppetLayers(h: Hero, stride: number, t: number, probe?: PupProbe): PupLayer[] {
+  const p = puppetPose(h, stride, t);
+  if (probe) {
+    probe.legA = p.legA;
+    probe.legB = p.legB;
+    probe.legT = p.legT;
+    probe.tuckT = p.tuckT;
+  }
+  // Rest wins over everything (the dog is standing), then the tuck over the stride.
+  const live = 1 - p.restT;
+  const strideA = live * (1 - p.tuckT);
+  const tuckA = live * p.tuckT;
+  return [
+    { name: 'pup_base', box: BASE_BOX, alpha: 1 },
+    { name: tail(p.tailA), box: TAIL_BOX, alpha: 1 },
+    { name: tail(p.tailB), box: TAIL_BOX, alpha: p.tailT },
+    // Adjacent stride frames nearly coincide, so the next one stacks over the current one instead of cross-fading.
+    { name: leg(p.legA), box: LEGS_BOX, alpha: strideA },
+    { name: leg(p.legB), box: LEGS_BOX, alpha: strideA * p.legT },
+    { name: leg(TUCK_UP), box: LEGS_BOX, alpha: tuckA * (1 - p.fallT) },
+    { name: leg(TUCK_DOWN), box: LEGS_BOX, alpha: tuckA * p.fallT },
+    { name: 'pup_leg_rest', box: LEGS_BOX, alpha: p.restT },
+  ];
+}
+
+/** The hero's drawn position between steps: x, y, stride phase and clock. */
+interface HeroFrame {
+  x: number;
+  y: number;
+  stride: number;
+  t: number;
+}
+
+function drawHero(world: World, at: HeroFrame, sprite: SpriteFn, part: PartFn, probe?: PupProbe) {
   const h = world.hero;
   if (world.phase === 'respawn' && world.phaseT < 0.9) return;
-  const t = world.t;
+  const t = at.t;
   const flicker = h.invuln > 0 && Math.floor(h.invuln * 14) % 2 === 0 ? 0.35 : 1;
 
   // Squash on landing, stretch on take-off. Volume stays put: width = 1 / sqrt(height).
@@ -314,7 +379,7 @@ function drawHero(world: World, sprite: SpriteFn, part: PartFn) {
   switch (h.pose) {
     case 'run': {
       // A bouncy gallop: two bounces per stride with a little rock.
-      const phase = h.stride * Math.PI * 2;
+      const phase = at.stride * Math.PI * 2;
       lift = Math.abs(Math.sin(phase)) * 2.5;
       rot = Math.sin(phase) * 0.03;
       break;
@@ -343,14 +408,9 @@ function drawHero(world: World, sprite: SpriteFn, part: PartFn) {
       break;
   }
   if (name !== 'pup_walk') {
-    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale });
+    sprite(name, at.x, at.y + lift, { rot, alpha: flicker, sxScale, syScale });
     return;
   }
   // Running and airborne: the real Dog Better puppet, legs driven by distance run, tail always wagging.
-  let legs: SpriteName = `pup_leg_${Math.floor(h.stride * LEG_FRAMES) % LEG_FRAMES}` as SpriteName;
-  if (!h.onGround) legs = h.vy > 0 ? 'pup_leg_6' : 'pup_leg_18';
-  if (h.blocked) legs = 'pup_leg_rest';
-  // The tail sheet is one full wag, so it loops (2.4 wags a second while trotting, as in Dog Better).
-  const tail = Math.floor(t * 2.4 * (TAIL_FRAMES - 1)) % (TAIL_FRAMES - 1);
-  drawPuppet(part, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale, legs, tail });
+  drawPuppet(part, at.x, at.y + lift, { rot, alpha: flicker, sxScale, syScale }, puppetLayers(h, at.stride, t, probe));
 }

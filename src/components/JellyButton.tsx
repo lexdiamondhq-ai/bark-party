@@ -27,11 +27,11 @@ export function JellyButton({ label, onPress, gold = false, accessibilityHint, o
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
       onPressIn={() => {
-        height.value = withSpring(0.9, springs.squish);
+        height.set(withSpring(0.9, springs.squish));
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {});
       }}
       onPressOut={() => {
-        height.value = withSpring(1, springs.squish);
+        height.set(withSpring(1, springs.squish));
       }}
       onPress={onPress}
     >

@@ -8,7 +8,10 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.dobetter.barkparty"
+      "bundleIdentifier": "com.dobetter.barkparty",
+      "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

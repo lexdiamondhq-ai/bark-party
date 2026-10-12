@@ -30,7 +30,9 @@ export default function Story() {
   const { scene = 'ch1_intro' } = useLocalSearchParams<{ scene?: string }>();
   const def = SCENES[scene] ?? SCENES.ch1_intro;
   const [index, setIndex] = useState(0);
-  const [shown, setShown] = useState(0);
+  // Characters typed so far, tagged with their panel so a new panel starts at zero without a reset in an effect.
+  const [typed, setTyped] = useState({ index: 0, n: 0 });
+  const shown = typed.index === index ? typed.n : 0;
   const reduce = useRef(false);
   const panel = def.panels[index];
 
@@ -47,16 +49,15 @@ export default function Story() {
 
   // Typewriter.
   useEffect(() => {
-    setShown(0);
     if (panel.slam) {
       playSfx('boss_laugh');
       if (!reduce.current)
-        shake.value = withSequence(withTiming(14, { duration: 40 }), withRepeat(withTiming(-14, { duration: 60 }), 5, true), withSpring(0, springs.snap));
+        shake.set(withSequence(withTiming(14, { duration: 40 }), withRepeat(withTiming(-14, { duration: 60 }), 5, true), withSpring(0, springs.snap)));
     } else if (panel.dark) playSfx('squirrel_chitter');
     const start = Date.now();
     const id = setInterval(() => {
       const n = Math.min(panel.text.length, Math.floor(((Date.now() - start) / 1000) * CPS));
-      setShown(n);
+      setTyped({ index, n });
       if (n % 3 === 0) playSfx('blip');
       if (n >= panel.text.length) clearInterval(id);
     }, 30);
@@ -70,7 +71,7 @@ export default function Story() {
 
   const advance = () => {
     if (shown < panel.text.length) {
-      setShown(panel.text.length);
+      setTyped({ index, n: panel.text.length });
       return;
     }
     playSfx('button');

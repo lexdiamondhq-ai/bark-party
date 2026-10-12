@@ -1,8 +1,13 @@
-import { HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, PHYS } from '../constants';
+import { HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, STRIDE_LEN } from '../constants';
 import type { LevelDef } from '../level/types';
-import { SPRITES, type SpriteName } from '../sprites';
+import { PUP_LEG_FRAMES, SPRITES, type SpriteName } from '../sprites';
 import { seededRng } from '../../engine/rng';
 import type { Acorn, Boss, Enemy, GameEvent, Hero, Input, Particle, Platform, World } from './types';
+
+/** The legs settle onto four paws over this long when the dog is stopped by a solid piece. */
+const REST_BLEND = 0.15;
+/** Stride phase of the legs-tucked frame the dog lands from, so the run picks up where the tuck left off. */
+const LAND_STRIDE = 36 / PUP_LEG_FRAMES;
 
 const TRAIL_MAX = 240;
 /** Boss stands this far ahead of the dog during the chase. */
@@ -25,6 +30,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
     phase: 'run',
     phaseT: 0,
     hero: makeHero(0),
+    prev: { x: 0, y: 0, camX: 0, t: 0, stride: 0 },
     camX: 0,
     shake: 0,
     platforms,
@@ -71,7 +77,23 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
     finished: false,
   };
   world.camX = cameraTarget(world);
+  snapPrev(world);
   return world;
+}
+
+/** The screen turned or resized: the world keeps the visible width so the camera and sleeping enemies follow. */
+export function resizeView(world: World, viewW: number) {
+  world.viewW = viewW;
+}
+
+/** Forgets where the hero was, so the next frame draws it exactly here (after a teleport or respawn). */
+export function snapPrev(world: World) {
+  const p = world.prev;
+  p.x = world.hero.x;
+  p.y = world.hero.y;
+  p.camX = world.camX;
+  p.t = world.t;
+  p.stride = world.hero.stride;
 }
 
 function makeHero(x: number): Hero {
@@ -93,6 +115,7 @@ function makeHero(x: number): Hero {
     sinceLand: 1,
     stride: 0,
     blocked: false,
+    restBlend: 0,
     pose: 'run',
   };
 }
@@ -169,6 +192,7 @@ function onFloor(world: World, x: number, halfW: number): boolean {
 
 export function stepWorld(world: World, input: Input, dtRaw: number): void {
   const dt = Math.min(dtRaw, 1 / 30);
+  snapPrev(world);
   world.t += dt;
   world.phaseT += dt;
   world.shake = Math.max(0, world.shake - dt * 3);
@@ -288,6 +312,7 @@ function stepHero(world: World, input: Input, dt: number) {
   // Horizontal move with solid-side blocking.
   const halfW = HERO_BOX.w / 2;
   const heroH = h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h;
+  const xBefore = h.x;
   let nx = h.x + h.vx * dt;
   h.blocked = false;
   for (const p of world.platforms) {
@@ -316,6 +341,7 @@ function stepHero(world: World, input: Input, dt: number) {
       }
     }
     h.vy = 0;
+    if (!wasOnGround) h.stride = LAND_STRIDE;
     h.onGround = true;
     h.airTime = 0;
     h.jumpsUsed = 0;
@@ -344,7 +370,9 @@ function stepHero(world: World, input: Input, dt: number) {
   else if (!h.onGround) h.pose = h.vy > 0 ? 'jump' : 'fall';
   else h.pose = 'run';
 
-  if (h.onGround && h.vx > 0) h.stride = (h.stride + (h.vx * dt) / 90) % 1;
+  // Legs follow the ground actually covered, so they stop when the dog is blocked and never spin faster than a run.
+  if (h.onGround) h.stride = (h.stride + Math.min(h.x - xBefore, MAX_STRIDE_SPEED * dt) / STRIDE_LEN) % 1;
+  h.restBlend = Math.min(1, Math.max(0, h.restBlend + (h.blocked ? dt : -dt) / REST_BLEND));
 }
 
 function bark(world: World) {
@@ -463,6 +491,7 @@ function respawn(world: World) {
   world.acorns = [];
   world.trail = [];
   world.camX = cameraTarget(world);
+  snapPrev(world);
 }
 
 /** After a game over: try again from the last balloon post with full hearts. */

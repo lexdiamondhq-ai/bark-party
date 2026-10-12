@@ -40,7 +40,18 @@ export interface Hero {
   /** Run-cycle phase in strides (0..1 repeating). */
   stride: number;
   blocked: boolean;
+  /** 0..1, eases up while blocked so the legs settle onto all four paws instead of cutting. */
+  restBlend: number;
   pose: HeroPose;
+}
+
+/** Where the hero and camera were at the previous step, so a frame between steps can be drawn in between. */
+export interface RenderPrev {
+  x: number;
+  y: number;
+  camX: number;
+  t: number;
+  stride: number;
 }
 
 export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';
@@ -170,6 +181,7 @@ export interface World {
   phase: WorldPhase;
   phaseT: number;
   hero: Hero;
+  prev: RenderPrev;
   camX: number;
   shake: number;
   platforms: Platform[];

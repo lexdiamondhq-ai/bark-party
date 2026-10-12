@@ -7,51 +7,28 @@ export interface SpriteSize {
   top?: number;
 }
 
+/** A numbered run of same-size frames: prefix_0 .. prefix_(n-1). tools/pack_atlas.py reads these lines too. */
+function strip<P extends string>(prefix: P, n: number, size: SpriteSize): Record<`${P}_${number}`, SpriteSize> {
+  const out = {} as Record<`${P}_${number}`, SpriteSize>;
+  for (let i = 0; i < n; i++) out[`${prefix}_${i}` as `${P}_${number}`] = size;
+  return out;
+}
+
+/** Frames in one stride of the pup's legs and in one wag of its tail (the sheets' last frame repeats the first). */
+export const PUP_LEG_FRAMES = 48;
+export const PUP_TAIL_FRAMES = 10;
+
 export const SPRITES = {
   // Hero: the Dog Better pup
   pup_walk: { w: 76, h: 67 },
   pup_bark: { w: 76, h: 66 },
   pup_down: { w: 82, h: 50 },
   pup_sit: { w: 64, h: 68 },
-  // Dog Better pup puppet: body, leg stride (every other frame of 49), rest legs and tail wag.
+  // Dog Better pup puppet: body, every frame of the leg stride, rest legs and the tail wag.
   pup_base: { w: 76, h: 67.66 },
-  pup_leg_0: { w: 68.42, h: 27.86 },
-  pup_leg_1: { w: 68.42, h: 27.86 },
-  pup_leg_2: { w: 68.42, h: 27.86 },
-  pup_leg_3: { w: 68.42, h: 27.86 },
-  pup_leg_4: { w: 68.42, h: 27.86 },
-  pup_leg_5: { w: 68.42, h: 27.86 },
-  pup_leg_6: { w: 68.42, h: 27.86 },
-  pup_leg_7: { w: 68.42, h: 27.86 },
-  pup_leg_8: { w: 68.42, h: 27.86 },
-  pup_leg_9: { w: 68.42, h: 27.86 },
-  pup_leg_10: { w: 68.42, h: 27.86 },
-  pup_leg_11: { w: 68.42, h: 27.86 },
-  pup_leg_12: { w: 68.42, h: 27.86 },
-  pup_leg_13: { w: 68.42, h: 27.86 },
-  pup_leg_14: { w: 68.42, h: 27.86 },
-  pup_leg_15: { w: 68.42, h: 27.86 },
-  pup_leg_16: { w: 68.42, h: 27.86 },
-  pup_leg_17: { w: 68.42, h: 27.86 },
-  pup_leg_18: { w: 68.42, h: 27.86 },
-  pup_leg_19: { w: 68.42, h: 27.86 },
-  pup_leg_20: { w: 68.42, h: 27.86 },
-  pup_leg_21: { w: 68.42, h: 27.86 },
-  pup_leg_22: { w: 68.42, h: 27.86 },
-  pup_leg_23: { w: 68.42, h: 27.86 },
-  pup_leg_24: { w: 68.42, h: 27.86 },
+  ...strip('pup_leg', 48, { w: 68.42, h: 27.86 }),
   pup_leg_rest: { w: 68.42, h: 27.86 },
-  pup_tail_0: { w: 20.85, h: 15.45 },
-  pup_tail_1: { w: 20.85, h: 15.45 },
-  pup_tail_2: { w: 20.85, h: 15.45 },
-  pup_tail_3: { w: 20.85, h: 15.45 },
-  pup_tail_4: { w: 20.85, h: 15.45 },
-  pup_tail_5: { w: 20.85, h: 15.45 },
-  pup_tail_6: { w: 20.85, h: 15.45 },
-  pup_tail_7: { w: 20.85, h: 15.45 },
-  pup_tail_8: { w: 20.85, h: 15.45 },
-  pup_tail_9: { w: 20.85, h: 15.45 },
-  pup_tail_10: { w: 20.85, h: 15.45 },
+  ...strip('pup_tail', 10, { w: 20.85, h: 15.45 }),
 
   // Dog Better breed dogs (sitting portraits), used for rescued friends
   dog_beagle: { w: 50, h: 52 },

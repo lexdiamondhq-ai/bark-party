@@ -228,7 +228,6 @@ describe('Chapter 1', () => {
     }
     const r = levelResult(w);
     // Helpful when tuning the level: where the run ended and what it picked up.
-    // eslint-disable-next-line no-console
     console.log(`phase=${w.phase} maxX=${Math.round(maxX)} hurt=${w.hurtCount} bones=${r.bones}/${r.bonesTotal} gold=${r.goldBones}/${r.goldTotal} friends=${r.rescued}/${r.rescueTotal}`);
     expect(w.phase).toBe('won');
     expect(PHYS.gravity).toBeGreaterThan(0);

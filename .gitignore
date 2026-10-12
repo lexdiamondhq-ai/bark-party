@@ -40,3 +40,5 @@ yarn-error.*
 /ios
 /android
 public/canvaskit.wasm
+
+assets/dogbetter/

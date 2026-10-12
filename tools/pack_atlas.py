@@ -53,12 +53,13 @@ def pup_parts():
         c, r = i % cols, i // cols
         return sheet.crop((c * fw, r * fh, c * fw + fw, r * fh + fh))
 
+    # The sheets' last frame repeats their first, so the loops are walk - 1 and tail - 1 frames.
     legs = Image.open(os.path.join(PUP_DIR, 'legs.png')).convert('RGBA')
-    for i in range(25):
-        parts[f'pup_leg_{i}'] = cut(legs, meta['legsSheet'], i * 2)
+    for i in range(meta['walk'] - 1):
+        parts[f'pup_leg_{i}'] = cut(legs, meta['legsSheet'], i)
     parts['pup_leg_rest'] = cut(legs, meta['legsSheet'], meta['rest'])
     tail = Image.open(os.path.join(PUP_DIR, 'tail.png')).convert('RGBA')
-    for i in range(meta['tail']):
+    for i in range(meta['tail'] - 1):
         parts[f'pup_tail_{i}'] = cut(tail, meta['tailSheet'], i)
     return parts
 
@@ -69,6 +70,10 @@ def sprite_sizes():
     sizes = {}
     for m in re.finditer(r'^\s+(\w+): \{ w: ([\d.]+), h: ([\d.]+)', src, re.M):
         sizes[m.group(1)] = (float(m.group(2)), float(m.group(3)))
+    # Numbered runs: ...strip('pup_leg', 48, { w: 68.42, h: 27.86 })
+    for m in re.finditer(r"^\s+\.\.\.strip\('(\w+)', (\d+), \{ w: ([\d.]+), h: ([\d.]+)", src, re.M):
+        for i in range(int(m.group(2))):
+            sizes[f'{m.group(1)}_{i}'] = (float(m.group(3)), float(m.group(4)))
     return sizes
 
 

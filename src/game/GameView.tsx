@@ -27,18 +27,16 @@ import Animated, {
 import { colors, fonts, springs } from '../theme/tokens';
 import { initAudio, pauseMusic, playMusic, playSfx, preloadSfx, isMuted, setMuted } from './audio';
 import { COACH_CHEER, DOGS, ROOMS, ROOM_SIZE } from './art';
-import { MAX_HEARTS, VIEW_H } from './constants';
+import { MAX_HEARTS, STEP, VIEW_H } from './constants';
 import type { CoachId, LevelDef } from './level/types';
 import { GameCanvas } from './render/GameCanvas';
 import { ATLAS_PAGES } from './render/atlasImages';
 import atlas from './render/atlas.json';
-import { buildFrame, OpList, type AtlasData } from './render/buildFrame';
+import { buildFrame, OpList, type AtlasData, type PupProbe } from './render/buildFrame';
 import { NO_INPUT, type GameEvent, type Input } from './sim/types';
-import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, stepWorld, type LevelResult } from './sim/world';
+import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, snapPrev, stepWorld, type LevelResult } from './sim/world';
 import type { DogId } from './sprites';
 import { BOSS_NAME, DOG_NAMES } from './story';
-
-const STEP = 1 / 60;
 
 function createStartWorld(level: LevelDef, viewW: number, startX?: number) {
   const w = createWorld(level, viewW, 11);
@@ -46,8 +44,39 @@ function createStartWorld(level: LevelDef, viewW: number, startX?: number) {
     w.hero.x = startX;
     w.respawnX = startX;
     w.camX = cameraTarget(w);
+    snapPrev(w);
   }
   return w;
+}
+
+/** Development only: one second of per-frame timing, printed to the console, to check the legs never stutter. */
+type ProbeRow = { dt: number; steps: number; alpha: number; legA: number; legB: number; legT: number; tuckT: number; buildMs: number; setMs: number; ops: number };
+type Probe = { label: string; rows: ProbeRow[]; until: number };
+
+function reportProbe(p: Probe) {
+  const rows = p.rows;
+  if (rows.length < 10) return;
+  const dts = rows.map((r) => r.dt).sort((a, b) => a - b);
+  const median = dts[Math.floor(dts.length / 2)];
+  const slow = rows.filter((r) => r.dt > median * 1.5).length;
+  const idle = rows.filter((r) => r.steps === 0).length;
+  let maxJump = 0;
+  let stalls = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1];
+    const b = rows[i];
+    if (b.tuckT > 0 || a.tuckT > 0) continue;
+    const jump = ((b.legA - a.legA + 48) % 48) + (b.legT - a.legT);
+    maxJump = Math.max(maxJump, jump);
+    if (b.legA === a.legA && b.legT === a.legT) stalls++;
+  }
+  const avg = (f: (r: ProbeRow) => number) => rows.reduce((s, r) => s + f(r), 0) / rows.length;
+  console.log(
+    `[legs probe: ${p.label}] ${rows.length} frames, median dt ${(median * 1000).toFixed(2)} ms (${Math.round(1 / median)} Hz), ` +
+      `${slow} slow, ${idle} zero-step, ${stalls} repeated leg frames, max leg advance ${maxJump.toFixed(2)} frames/tick, ` +
+      `build ${avg((r) => r.buildMs).toFixed(2)} ms, set ${avg((r) => r.setMs).toFixed(2)} ms, ${Math.round(avg((r) => r.ops))} ops`,
+  );
+  console.table(rows.map((r) => ({ ...r, dt: +(r.dt * 1000).toFixed(2), alpha: +r.alpha.toFixed(2), legT: +r.legT.toFixed(2), tuckT: +r.tuckT.toFixed(2), buildMs: +r.buildMs.toFixed(2), setMs: +r.setMs.toFixed(2) })));
 }
 const SWIPE_DOWN = 26;
 const BARK_SIZE = 96;
@@ -67,13 +96,15 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
   const k = height / VIEW_H;
   const viewW = width / k;
 
-  const world = useRef(createStartWorld(level, viewW, startX)).current;
+  const [world] = useState(() => createStartWorld(level, viewW, startX));
   const ops = useSharedValue<number[]>([]);
   const input = useRef<Input>({ ...NO_INPUT });
   const jumpTouch = useRef<{ id: string; y: number; slid: boolean } | null>(null);
   const paused = useRef(false);
   const reduceMotion = useRef(false);
   const doneRef = useRef(false);
+  const probe = useRef<Probe | null>(__DEV__ ? { label: 'level start', rows: [], until: 0 } : null);
+  const probedJump = useRef(false);
 
   const [hearts, setHearts] = useState(MAX_HEARTS);
   const [bones, setBones] = useState(0);
@@ -91,7 +122,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
   const boneStyle = useAnimatedStyle(() => ({ transform: [{ scale: boneBump.value }] }));
 
   useEffect(() => {
-    world.viewW = viewW;
+    resizeView(world, viewW);
   }, [viewW, world]);
 
   useEffect(() => {
@@ -176,6 +207,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
   useEffect(() => {
     const atlasData = atlas as unknown as AtlasData;
     const out = new OpList();
+    const pup: PupProbe = { legA: 0, legB: 0, legT: 0, tuckT: 0 };
     let raf = 0;
     let last = 0;
     let acc = 0;
@@ -198,6 +230,9 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         steps++;
       }
       if (steps === 4) acc = 0;
+      // Draw the moment between the last two steps that matches this display frame.
+      const alpha = acc / STEP;
+      const t0 = __DEV__ ? performance.now() : 0;
       out.data = [];
       buildFrame(world, {
         atlas: atlasData,
@@ -206,12 +241,24 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         screenW: width,
         screenH: height,
         reduceMotion: reduceMotion.current,
+        alpha,
+        probe: pup,
       }, out);
-      ops.value = out.data;
+      const t1 = __DEV__ ? performance.now() : 0;
+      ops.set(out.data);
+      const p = probe.current;
+      if (p) {
+        if (!p.until) p.until = now + 1000;
+        p.rows.push({ dt: elapsed, steps, alpha, legA: pup.legA, legB: pup.legB, legT: pup.legT, tuckT: pup.tuckT, buildMs: t1 - t0, setMs: performance.now() - t1, ops: out.count });
+        if (now >= p.until) {
+          probe.current = null;
+          reportProbe(p);
+        }
+      }
       const events = drainEvents(world);
       if (events.length) handleEvents(events);
       if (world.bones !== lastBones) {
-        if (lastBones >= 0) boneBump.value = withSequence(withTiming(1.3, { duration: 60 }), withSpring(1, springs.bouncy));
+        if (lastBones >= 0) boneBump.set(withSequence(withTiming(1.3, { duration: 60 }), withSpring(1, springs.bouncy)));
         lastBones = world.bones;
         setBones(world.bones);
       }
@@ -219,6 +266,13 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [boneBump, handleEvents, height, k, ops, width, world]);
+
+  const togglePause = () => {
+    paused.current = !paused.current;
+    setIsPaused(paused.current);
+    pauseMusic(paused.current);
+    playSfx('button');
+  };
 
   // Keyboard for the web build and the simulator: space or up jumps, down slides, X barks.
   useEffect(() => {
@@ -243,13 +297,6 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
     };
   });
 
-  const togglePause = () => {
-    paused.current = !paused.current;
-    setIsPaused(paused.current);
-    pauseMusic(paused.current);
-    playSfx('button');
-  };
-
   // Touch: tap anywhere to jump (hold for higher), swipe down to slide.
   const onTouchStart = (e: GestureResponderEvent) => {
     for (const t of e.nativeEvent.changedTouches) {
@@ -257,6 +304,10 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
       jumpTouch.current = { id: String(t.identifier), y: t.pageY, slid: false };
       input.current.jumpPressed = true;
       input.current.jumpHeld = true;
+      if (__DEV__ && !probedJump.current && !probe.current) {
+        probedJump.current = true;
+        probe.current = { label: 'first jump', rows: [], until: 0 };
+      }
     }
   };
   const onTouchMove = (e: GestureResponderEvent) => {
@@ -284,7 +335,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
 
   const bark = () => {
     input.current.barkPressed = true;
-    barkScale.value = withSequence(withTiming(0.86, { duration: 50 }), withSpring(1, springs.squish));
+    barkScale.set(withSequence(withTiming(0.86, { duration: 50 }), withSpring(1, springs.squish)));
   };
 
   const retry = () => {

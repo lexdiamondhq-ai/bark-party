@@ -75,7 +75,7 @@ export default function Preview() {
         <View style={styles.middle}>
           {player && slot && (
             <Text style={[styles.turn, styles.onCandy]}>
-              {player.name}'s turn ({slot.shape})
+              {player.name}&apos;s turn ({slot.shape})
             </Text>
           )}
           {plan.speedUp && <Text style={styles.faster}>FASTER!</Text>}

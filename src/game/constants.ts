@@ -2,6 +2,11 @@
 // (the view width follows the screen's aspect ratio). Heights are measured up from the floor.
 
 export const VIEW_H = 360;
+/** The simulation advances in fixed steps; the renderer interpolates between the last two. */
+export const STEP = 1 / 60;
+/** Ground covered by one full leg cycle, and the fastest the legs will cycle for (units per second). */
+export const STRIDE_LEN = 96;
+export const MAX_STRIDE_SPEED = 360;
 /** Screen-space y of the floor line, in world units from the top of the view. */
 export const FLOOR_SCREEN_Y = 310;
 /** Hero's x position on screen, as a share of the view width. */

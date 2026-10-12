@@ -8,7 +8,7 @@ import {
   useImage,
   type SkImage,
 } from '@shopify/react-native-skia';
-import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import { runOnJS, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 import { ATLAS_PAGES } from './atlasImages';
 import { RECT, STRIDE } from './buildFrame';
@@ -21,12 +21,30 @@ type Props = {
   background: number;
 };
 
+function logUiFps(frames: number) {
+  console.log(`[legs probe] UI thread draws at ${frames} Hz`);
+}
+
 /** Draws the op list from buildFrame. Runs on the UI thread every time `ops` changes. */
 export function GameCanvas({ ops, width, height, background }: Props) {
   // ATLAS_PAGES has a fixed length, so this keeps the hook order stable.
   const pages = ATLAS_PAGES.map((src) => useImage(src)); // eslint-disable-line react-hooks/rules-of-hooks
   const bg = useImage(background);
   const images: (SkImage | null)[] = [...pages, bg];
+
+  // Development: how fast the UI thread actually draws, logged once, to compare with the JS loop's rate.
+  const fps = useSharedValue({ frames: 0, start: 0, done: !__DEV__ });
+  useFrameCallback((info) => {
+    'worklet';
+    const s = fps.value;
+    if (s.done) return;
+    if (!s.start) s.start = info.timestamp;
+    s.frames++;
+    if (info.timestamp - s.start >= 1000) {
+      s.done = true;
+      runOnJS(logUiFps)(s.frames);
+    }
+  }, __DEV__);
 
   const picture = useDerivedValue(() => {
     const d = ops.value;
