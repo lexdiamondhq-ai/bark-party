@@ -60,6 +60,12 @@ export default function Title() {
         </Pressable>
       </View>
 
+      {__DEV__ && (
+        <Pressable style={styles.directions} onPress={() => router.push('/directions')} accessibilityRole="button">
+          <Text style={styles.directionsText}>Look directions</Text>
+        </Pressable>
+      )}
+
       <Animated.View style={[styles.parade, runStyle]} pointerEvents="none">
         <Animated.View style={[styles.wagon, wagonStyle]}>
           <Image source={DOGS.husky} style={[styles.rider, { left: 14 }]} />
@@ -94,6 +100,8 @@ const styles = StyleSheet.create({
   glass: { backgroundColor: 'rgba(255,244,226,0.14)', borderColor: 'rgba(255,244,226,0.35)' },
   btnDark: { fontFamily: fonts.bodyHeavy, fontSize: 22, color: colors.cocoa },
   btnLight: { fontFamily: fonts.bodyHeavy, fontSize: 20, color: colors.marshmallow },
+  directions: { position: 'absolute', top: 14, right: 18, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(26,15,11,0.5)' },
+  directionsText: { fontFamily: fonts.bodyHeavy, fontSize: 13, color: colors.marshmallow },
   parade: { position: 'absolute', left: 0, bottom: 10, flexDirection: 'row', alignItems: 'flex-end' },
   wagon: { width: 128, height: 78, justifyContent: 'flex-end' },
   wagonImg: { width: 128, height: 59, resizeMode: 'contain' },
