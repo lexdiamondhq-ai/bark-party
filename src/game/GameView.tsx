@@ -50,7 +50,7 @@ function createStartWorld(level: LevelDef, viewW: number, startX?: number) {
 }
 
 /** Development only: one second of per-frame timing, printed to the console, to check the legs never stutter. */
-type ProbeRow = { dt: number; steps: number; alpha: number; legA: number; legB: number; legT: number; tuckT: number; buildMs: number; setMs: number; ops: number };
+type ProbeRow = { dt: number; steps: number; legA: number; legB: number; legT: number; tuckT: number; buildMs: number; setMs: number; ops: number };
 type Probe = { label: string; rows: ProbeRow[]; until: number };
 
 function reportProbe(p: Probe) {
@@ -76,7 +76,7 @@ function reportProbe(p: Probe) {
       `${slow} slow, ${idle} zero-step, ${stalls} repeated leg frames, max leg advance ${maxJump.toFixed(2)} frames/tick, ` +
       `build ${avg((r) => r.buildMs).toFixed(2)} ms, set ${avg((r) => r.setMs).toFixed(2)} ms, ${Math.round(avg((r) => r.ops))} ops`,
   );
-  console.table(rows.map((r) => ({ ...r, dt: +(r.dt * 1000).toFixed(2), alpha: +r.alpha.toFixed(2), legT: +r.legT.toFixed(2), tuckT: +r.tuckT.toFixed(2), buildMs: +r.buildMs.toFixed(2), setMs: +r.setMs.toFixed(2) })));
+  console.table(rows.map((r) => ({ ...r, dt: +(r.dt * 1000).toFixed(2), legT: +r.legT.toFixed(2), tuckT: +r.tuckT.toFixed(2), buildMs: +r.buildMs.toFixed(2), setMs: +r.setMs.toFixed(2) })));
 }
 const SWIPE_DOWN = 26;
 const BARK_SIZE = 96;
@@ -230,8 +230,8 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         steps++;
       }
       if (steps === 4) acc = 0;
-      // Draw the moment between the last two steps that matches this display frame.
-      const alpha = acc / STEP;
+      if (steps === 0) return;
+      // One op list per step; the canvas draws the frames in between (see GameCanvasImpl).
       const t0 = __DEV__ ? performance.now() : 0;
       out.data = [];
       buildFrame(world, {
@@ -241,7 +241,6 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         screenW: width,
         screenH: height,
         reduceMotion: reduceMotion.current,
-        alpha,
         probe: pup,
       }, out);
       const t1 = __DEV__ ? performance.now() : 0;
@@ -249,7 +248,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
       const p = probe.current;
       if (p) {
         if (!p.until) p.until = now + 1000;
-        p.rows.push({ dt: elapsed, steps, alpha, legA: pup.legA, legB: pup.legB, legT: pup.legT, tuckT: pup.tuckT, buildMs: t1 - t0, setMs: performance.now() - t1, ops: out.count });
+        p.rows.push({ dt: elapsed, steps, legA: pup.legA, legB: pup.legB, legT: pup.legT, tuckT: pup.tuckT, buildMs: t1 - t0, setMs: performance.now() - t1, ops: out.count });
         if (now >= p.until) {
           probe.current = null;
           reportProbe(p);

@@ -56,7 +56,13 @@ export interface RenderPrev {
 
 export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';
 
-export interface Enemy {
+/** Where a moving thing was at the previous step; the canvas draws it in between (unset until its first step). */
+export interface Prev {
+  px?: number;
+  py?: number;
+}
+
+export interface Enemy extends Prev {
   id: number;
   type: EnemyType;
   x: number;
@@ -79,7 +85,7 @@ export interface Enemy {
   facing: 1 | -1;
 }
 
-export interface Acorn {
+export interface Acorn extends Prev {
   x: number;
   y: number;
   vx: number;
@@ -121,7 +127,7 @@ export interface Platform {
   solid: boolean;
 }
 
-export interface Particle {
+export interface Particle extends Prev {
   sprite: SpriteName;
   x: number;
   y: number;
@@ -141,7 +147,7 @@ export interface Particle {
 
 export type BossPhase = 'waiting' | 'intro' | 'fight' | 'hurt' | 'defeated' | 'gone';
 
-export interface Boss {
+export interface Boss extends Prev {
   name: string;
   hitsNeeded: number;
   hits: number;

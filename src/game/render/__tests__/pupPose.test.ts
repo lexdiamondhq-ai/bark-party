@@ -4,7 +4,7 @@ import { MAX_STRIDE_SPEED, STEP, STRIDE_LEN } from '../../constants';
 import { createWorld, stepWorld } from '../../sim/world';
 import { NO_INPUT, type Hero } from '../../sim/types';
 import { TUCK_BLEND, fallShare, legFrames, tailFrames, tuckShare } from '../pupPose';
-import { buildFrame, puppetLayers, type AtlasData } from '../buildFrame';
+import { STRIDE, buildFrame, puppetLayers, type AtlasData } from '../buildFrame';
 
 const hero = (over: Partial<Hero> = {}): Hero => ({
   x: 0,
@@ -120,21 +120,30 @@ describe('stride in the simulation', () => {
 });
 
 describe('frame interpolation', () => {
-  const atlas: AtlasData = { pages: ['p'], frames: { pup_base: [0, 0, 0, 10, 10] } };
-  const setup = (alpha: number) => ({ atlas, background: null, k: 1, screenW: 640, screenH: 360, alpha });
-  const heroOps = (data: number[]) => {
-    for (let i = 0; i < data.length; i += 12) if (data[i] === 0 && data[i + 3] === 10) return data[i + 5];
-    return NaN;
+  const atlas: AtlasData = { pages: ['p'], frames: { pup_base: [0, 0, 0, 10, 10], couch: [0, 0, 0, 20, 20] } };
+  const setup = { atlas, background: null, k: 1, screenW: 640, screenH: 360 };
+  const find = (data: number[], srcW: number) => {
+    for (let i = 0; i < data.length; i += STRIDE) if (data[i] === 0 && data[i + 3] === srcW) return { cx: data[i + 5], cy: data[i + 6], pcx: data[i + 12], pcy: data[i + 13] };
+    return null;
   };
 
-  it('draws the hero between the last two steps', () => {
+  it('gives every op where it was one step ago, in the previous camera', () => {
+    const w = createWorld({ ...CHAPTER_1, enemies: [], pickups: [], cages: [], boss: undefined, platforms: [{ sprite: 'couch', x: 300 }] }, 640);
+    stepWorld(w, NO_INPUT, STEP);
+    stepWorld(w, NO_INPUT, STEP);
+    const data = buildFrame(w, setup).data;
+    const hero = find(data, 10)!;
+    const couch = find(data, 20)!;
+    // The hero ran 5 units and the camera followed part of the way, so on screen the hero moved by the difference.
+    expect(hero.cx - hero.pcx).toBeCloseTo(w.hero.x - w.prev.x - (w.camX - w.prev.camX));
+    // The couch stands still in the world, so on screen it moved back by the camera's move.
+    expect(couch.cx - couch.pcx).toBeCloseTo(-(w.camX - w.prev.camX));
+    expect(couch.cy).toBe(couch.pcy);
+  });
+
+  it('starts a fresh world with no motion to blend from', () => {
     const w = createWorld({ ...CHAPTER_1, enemies: [], pickups: [], cages: [], boss: undefined }, 640);
-    stepWorld(w, NO_INPUT, STEP);
-    stepWorld(w, NO_INPUT, STEP);
-    const at0 = heroOps(buildFrame(w, setup(0)).data);
-    const at1 = heroOps(buildFrame(w, setup(1)).data);
-    const mid = heroOps(buildFrame(w, setup(0.5)).data);
-    expect(at1).not.toBe(at0);
-    expect(mid).toBeCloseTo((at0 + at1) / 2);
+    const hero = find(buildFrame(w, setup).data, 10)!;
+    expect(hero.pcx).toBe(hero.cx);
   });
 });

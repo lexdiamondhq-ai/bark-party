@@ -7,7 +7,7 @@ import sys
 from PIL import Image, ImageDraw
 
 ROOT = '/Users/alexmedina/bark-party-game'
-STRIDE = 12
+STRIDE = 14
 RECT = -1
 FLOOR_SCREEN_Y = 310
 
@@ -23,7 +23,7 @@ for fr in data['frames']:
     canvas = Image.new('RGBA', (W, H), (240, 230, 220, 255))
     d = fr['ops']
     for i in range(0, len(d), STRIDE):
-        img, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color = d[i:i + STRIDE]
+        img, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color, pcx, pcy = d[i:i + STRIDE]
         if alpha <= 0.01:
             continue
         if img == RECT:

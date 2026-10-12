@@ -9,12 +9,14 @@ import { TUCK_DOWN, TUCK_UP, puppetPose } from './pupPose';
 
 /**
  * One draw op is STRIDE numbers:
- * [image, srcX, srcY, srcW, srcH, centreX, centreY, destW, destH, rotation, alpha, color]
+ * [image, srcX, srcY, srcW, srcH, centreX, centreY, destW, destH, rotation, alpha, color, prevCentreX, prevCentreY]
  * image >= 0 is an index into the canvas's image list; srcW/H in pixels.
  * image = RECT draws a filled rectangle of `color` (0xRRGGBB) instead.
  * A negative destW mirrors the sprite left to right.
+ * prevCentreX/Y is where the op was one simulation step earlier; a display faster than the
+ * simulation draws the op part way from there to centreX/Y, so motion stays smooth at 120 Hz.
  */
-export const STRIDE = 12;
+export const STRIDE = 14;
 export const RECT = -1;
 
 /** frames[name] = [page, x, y, w, h] in atlas pixels. */
@@ -32,8 +34,6 @@ export interface FrameSetup {
   screenW: number;
   screenH: number;
   reduceMotion?: boolean;
-  /** How far the frame sits between the previous step (0) and the current one (1). Default 1. */
-  alpha?: number;
   /** Development: filled in with the hero frames actually drawn, for the frame-rate probe. */
   probe?: PupProbe;
 }
@@ -60,8 +60,10 @@ export class OpList {
     rot: number,
     alpha: number,
     color: number,
+    pcx = cx,
+    pcy = cy,
   ) {
-    this.data.push(image, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color);
+    this.data.push(image, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color, pcx, pcy);
   }
   get count() {
     return this.data.length / STRIDE;
@@ -76,45 +78,49 @@ export function hexToInt(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
 }
 
+interface SpriteOpts {
+  flip?: boolean;
+  rot?: number;
+  alpha?: number;
+  scale?: number;
+  sxScale?: number;
+  syScale?: number;
+  /** World position one step earlier (defaults to x, y: the thing stands still in the world). */
+  px?: number;
+  py?: number;
+}
+
 export function buildFrame(world: World, setup: FrameSetup, out = new OpList()): OpList {
   const { atlas, k, screenW, screenH } = setup;
-  const a = Math.min(1, Math.max(0, setup.alpha ?? 1));
-  const lerp = (p: number, c: number) => p + (c - p) * a;
+  const t = world.t;
   const prev = world.prev;
-  const hero = world.hero;
-  // The hero, camera and clock sit between the last two steps, so a display faster than the
-  // simulation still draws a different picture every frame.
-  const t = lerp(prev.t, world.t);
-  const heroX = lerp(prev.x, hero.x);
-  const heroY = lerp(prev.y, hero.y);
-  const stride = lerp(prev.stride, hero.stride < prev.stride ? hero.stride + 1 : hero.stride) % 1;
   const shake = setup.reduceMotion ? 0 : world.shake;
-  const camX = lerp(prev.camX, world.camX) + Math.sin(t * 83) * shake * 7;
+  const shakeX = Math.sin(t * 83) * shake * 7;
   const camY = Math.cos(t * 71) * shake * 5;
+  const camX = world.camX + shakeX;
+  const camXPrev = prev.camX + shakeX;
 
   const sx = (x: number) => (x - camX) * k;
   const sy = (y: number) => (FLOOR_SCREEN_Y - y + camY) * k;
+  const sxPrev = (x: number) => (x - camXPrev) * k;
   const viewL = camX - 120;
   const viewR = camX + screenW / k + 120;
   const visible = (x: number, w = 0) => x + w / 2 > viewL && x - w / 2 < viewR;
 
   /** Draws a sprite with its bottom centre at world (x, y). */
-  const sprite = (
-    name: SpriteName,
-    x: number,
-    y: number,
-    opts: { flip?: boolean; rot?: number; alpha?: number; scale?: number; sxScale?: number; syScale?: number } = {},
-  ) => {
+  const sprite = (name: SpriteName, x: number, y: number, opts: SpriteOpts = {}) => {
     const f = atlas.frames[name];
     if (!f) return;
     const size = SPRITES[name];
     const s = opts.scale ?? 1;
     const w = size.w * s * (opts.sxScale ?? 1);
     const h = size.h * s * (opts.syScale ?? 1);
-    out.push(f[0], f[1], f[2], f[3], f[4], sx(x), sy(y + h / 2), (opts.flip ? -w : w) * k, h * k, opts.rot ?? 0, opts.alpha ?? 1, 0);
+    const cy = y + h / 2;
+    const pcy = (opts.py ?? y) + h / 2;
+    out.push(f[0], f[1], f[2], f[3], f[4], sx(x), sy(cy), (opts.flip ? -w : w) * k, h * k, opts.rot ?? 0, opts.alpha ?? 1, 0, sxPrev(opts.px ?? x), sy(pcy));
   };
-  const rect = (x: number, y: number, w: number, h: number, color: number, alpha = 1, rot = 0) => {
-    out.push(RECT, 0, 0, 0, 0, sx(x), sy(y), w * k, h * k, rot, alpha, color);
+  const rect = (x: number, y: number, w: number, h: number, color: number, alpha = 1, rot = 0, px = x, py = y) => {
+    out.push(RECT, 0, 0, 0, 0, sx(x), sy(y), w * k, h * k, rot, alpha, color, sxPrev(px), sy(py));
   };
 
   // Background room, slow parallax, tiled.
@@ -123,12 +129,15 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     const dh = screenH * 1.04;
     const dw = (bg.w / bg.h) * dh;
     const scroll = camX * k * 0.25;
+    const scrollPrev = camXPrev * k * 0.25;
     const first = Math.floor(scroll / dw);
     for (let n = first; (n - first) * dw - (scroll - first * dw) < screenW; n++) {
       const x = n * dw - scroll;
+      const xPrev = n * dw - scrollPrev;
       // Every other copy is mirrored so the edges always meet cleanly.
       const mirror = n % 2 !== 0;
-      out.push(bg.image, 0, 0, bg.w, bg.h, x + dw / 2, dh / 2 - screenH * 0.02 + camY * k * 0.3, mirror ? -dw : dw, dh, 0, 1, 0);
+      const cy = dh / 2 - screenH * 0.02 + camY * k * 0.3;
+      out.push(bg.image, 0, 0, bg.w, bg.h, x + dw / 2, cy, mirror ? -dw : dw, dh, 0, 1, 0, xPrev + dw / 2, cy);
     }
     // Push the room back so the furniture you can jump on reads in front of it.
     out.push(RECT, 0, 0, 0, 0, screenW / 2, screenH / 2, screenW + 40, screenH + 40, 0, 0.22, 0x140a1f);
@@ -153,7 +162,8 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
       const f = atlas.frames.floor_living;
       if (!f) continue;
       const share = w / tile;
-      out.push(f[0], f[1], f[2], f[3] * share, f[4], sx(x + w / 2), sy(-SPRITES.floor_living.h / 2), w * k, SPRITES.floor_living.h * k, 0, 1, 0);
+      const cy = sy(-SPRITES.floor_living.h / 2);
+      out.push(f[0], f[1], f[2], f[3] * share, f[4], sx(x + w / 2), cy, w * k, SPRITES.floor_living.h * k, 0, 1, 0, sxPrev(x + w / 2), cy);
     }
     // Ink edge on pit lips.
     rect(a + 2, -20, 4, 40, COCOA, 0.8);
@@ -202,33 +212,34 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
   for (const e of world.enemies) {
     if (!visible(e.x, 80)) continue;
     const flip = e.facing < 0;
+    const was = { px: e.px, py: e.py };
     if (e.type === 'runner' || e.type === 'thrower') {
       if (e.state === 'stunned') {
-        sprite('squirrel_stunned', e.x, e.y, { rot: e.t * 9, flip });
+        sprite('squirrel_stunned', e.x, e.y, { rot: e.t * 9, flip, ...was });
       } else if (e.type === 'runner') {
-        sprite(`squirrel_run_${Math.floor(t * 14) % 4}` as SpriteName, e.x, e.y, { flip });
+        sprite(`squirrel_run_${Math.floor(t * 14) % 4}` as SpriteName, e.x, e.y, { flip, ...was });
       } else if (e.throwing > 0) {
-        sprite(e.throwing > 0.15 ? 'squirrel_throw_0' : 'squirrel_throw_1', e.x, e.y, { flip });
+        sprite(e.throwing > 0.15 ? 'squirrel_throw_0' : 'squirrel_throw_1', e.x, e.y, { flip, ...was });
       } else {
-        sprite(`squirrel_idle_${Math.floor(t * 3 + e.id) % 2}` as SpriteName, e.x, e.y, { flip });
+        sprite(`squirrel_idle_${Math.floor(t * 3 + e.id) % 2}` as SpriteName, e.x, e.y, { flip, ...was });
       }
     } else if (e.type === 'cat') {
-      if (e.state === 'fled') sprite('cat_awake_0', e.x, e.y, { rot: -e.t * 4 });
+      if (e.state === 'fled') sprite('cat_awake_0', e.x, e.y, { rot: -e.t * 4, ...was });
       else if (!e.awake) {
         const breathe = 1 + Math.sin(t * 2.4) * 0.03;
         sprite('cat_sleep', e.x, e.y, { flip, syScale: breathe, sxScale: 1 / Math.sqrt(breathe) });
       } else sprite(`cat_awake_${Math.floor(e.t * 6) % 2}` as SpriteName, e.x, e.y, { flip });
     } else if (e.type === 'vacuum') {
-      sprite(`vacuum_${Math.floor(t * 12) % 2}` as SpriteName, e.x, e.y, { flip: e.facing < 0 });
+      sprite(`vacuum_${Math.floor(t * 12) % 2}` as SpriteName, e.x, e.y, { flip: e.facing < 0, ...was });
     } else {
-      sprite('toy_blocks', e.x, e.y, { rot: e.state === 'stunned' ? e.t * 6 : 0 });
+      sprite('toy_blocks', e.x, e.y, { rot: e.state === 'stunned' ? e.t * 6 : 0, ...was });
     }
   }
 
   // Acorns.
   for (const a of world.acorns) {
     if (!visible(a.x)) continue;
-    sprite(a.golden ? 'acorn_golden' : 'acorn', a.x, a.y - 9, { rot: a.spin, scale: a.golden ? 1.4 : 1 });
+    sprite(a.golden ? 'acorn_golden' : 'acorn', a.x, a.y - 9, { rot: a.spin, scale: a.golden ? 1.4 : 1, px: a.px, py: a.py === undefined ? undefined : a.py - 9 });
   }
 
   // Rescued friends hop along behind the dog.
@@ -236,19 +247,19 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     const idx = Math.min(world.trail.length - 1, 14 + i * 13);
     if (idx < 0) return;
     const p = world.trail[idx];
+    const q = world.trail[Math.min(world.trail.length - 1, idx + 1)];
     const hop = Math.abs(Math.sin(t * 11 + i * 1.7));
     const y = p.y + hop * 10;
     const squash = 1 - (1 - hop) * 0.08;
-    sprite(dogSprite(dog), p.x - 30 - i * 6, y, { scale: 0.92, syScale: squash, sxScale: 1 / Math.sqrt(squash) });
+    sprite(dogSprite(dog), p.x - 30 - i * 6, y, { scale: 0.92, syScale: squash, sxScale: 1 / Math.sqrt(squash), px: q.x - 30 - i * 6, py: q.y + hop * 10 });
   });
 
   drawHero(
     world,
-    { x: heroX, y: heroY, stride, t },
     sprite,
-    (name, cx, cy, w, h, rot, alpha) => {
+    (name, cx, cy, pcx, pcy, w, h, rot, alpha) => {
       const f = atlas.frames[name];
-      if (f) out.push(f[0], f[1], f[2], f[3], f[4], sx(cx), sy(cy), w * k, h * k, rot, alpha, 0);
+      if (f) out.push(f[0], f[1], f[2], f[3], f[4], sx(cx), sy(cy), w * k, h * k, rot, alpha, 0, sxPrev(pcx), sy(pcy));
     },
     setup.probe,
   );
@@ -261,36 +272,31 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     else if (b.phase === 'hurt' || b.hurtT > 0) name = 'boss_hurt';
     else if (b.throwing > 0) name = b.throwing > 0.18 ? 'boss_throw_0' : 'boss_throw_1';
     const blink = b.hurtT > 0 && Math.floor(b.hurtT * 20) % 2 === 0 ? 0.5 : 1;
-    sprite(name, b.x, b.y, { flip: true, alpha: blink });
+    sprite(name, b.x, b.y, { flip: true, alpha: blink, px: b.px, py: b.py });
     // The stolen cake rides on the boss until it is beaten, then drops for the party.
     if (b.phase === 'defeated') sprite('cake', b.x - 90, 0, { scale: Math.min(1, 0.4 + b.t) });
-    else sprite('cake', b.x + 30, b.y + 104, { scale: 0.6, rot: Math.sin(t * 5) * 0.1 });
+    else sprite('cake', b.x + 30, b.y + 104, { scale: 0.6, rot: Math.sin(t * 5) * 0.1, px: b.px === undefined ? undefined : b.px + 30, py: b.py === undefined ? undefined : b.py + 104 });
   }
-  if (b && b.phase === 'gone') sprite('cake', world.hero.x + BOSS_LEAD - 130, 0);
+  if (b && b.phase === 'gone') sprite('cake', world.hero.x + BOSS_LEAD - 130, 0, { px: prev.x + BOSS_LEAD - 130 });
 
   // Particles: dust, sparkles, hearts, confetti and the bark burst.
   for (const p of world.particles) {
     if (!visible(p.x)) continue;
     const fade = Math.min(1, p.life / (p.maxLife * 0.35));
     if (p.color) {
-      rect(p.x, p.y, 7, 4.5, hexToInt(p.color), fade, p.rot);
+      rect(p.x, p.y, 7, 4.5, hexToInt(p.color), fade, p.rot, p.px ?? p.x, p.py ?? p.y);
     } else {
-      sprite(p.sprite, p.x, p.y, { rot: p.rot, alpha: fade, scale: p.scale });
+      sprite(p.sprite, p.x, p.y, { rot: p.rot, alpha: fade, scale: p.scale, px: p.px, py: p.py });
     }
   }
 
   return out;
 }
 
-type SpriteFn = (
-  name: SpriteName,
-  x: number,
-  y: number,
-  opts?: { flip?: boolean; rot?: number; alpha?: number; scale?: number; sxScale?: number; syScale?: number },
-) => void;
+type SpriteFn = (name: SpriteName, x: number, y: number, opts?: SpriteOpts) => void;
 
-/** Draws a sprite centred at world (cx, cy) with an exact world size. */
-type PartFn = (name: SpriteName, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => void;
+/** Draws a sprite centred at world (cx, cy), previously at (pcx, pcy), with an exact world size. */
+type PartFn = (name: SpriteName, cx: number, cy: number, pcx: number, pcy: number, w: number, h: number, rot: number, alpha: number) => void;
 
 // The Dog Better puppet: pieces placed in the walking sticker's 802 x 714 px canvas (pupFrames.json).
 const PUP_CANVAS = { w: 802, h: 714 };
@@ -306,7 +312,15 @@ interface PupLayer {
   alpha: number;
 }
 
-function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha: number; sxScale: number; syScale: number }, layers: PupLayer[]) {
+function drawPuppet(
+  part: PartFn,
+  x: number,
+  y: number,
+  px: number,
+  py: number,
+  o: { rot: number; alpha: number; sxScale: number; syScale: number },
+  layers: PupLayer[],
+) {
   const H = SPRITES.pup_base.h * o.syScale;
   const cos = Math.cos(o.rot);
   const sin = Math.sin(o.rot);
@@ -320,7 +334,9 @@ function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha:
     const w = (box[2] - box[0]) * PUP_S * o.sxScale;
     const h = (box[3] - box[1]) * PUP_S * o.syScale;
     // Screen rotation is clockwise for positive angles; in world space (y up) that is the inverse turn.
-    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, alpha);
+    const dx = bx * cos + by * sin;
+    const dy = H / 2 - bx * sin + by * cos;
+    part(l.name, x + dx, y + dy, px + dx, py + dy, w, h, o.rot, alpha);
   }
 }
 
@@ -353,18 +369,11 @@ export function puppetLayers(h: Hero, stride: number, t: number, probe?: PupProb
   ];
 }
 
-/** The hero's drawn position between steps: x, y, stride phase and clock. */
-interface HeroFrame {
-  x: number;
-  y: number;
-  stride: number;
-  t: number;
-}
-
-function drawHero(world: World, at: HeroFrame, sprite: SpriteFn, part: PartFn, probe?: PupProbe) {
+function drawHero(world: World, sprite: SpriteFn, part: PartFn, probe?: PupProbe) {
   const h = world.hero;
   if (world.phase === 'respawn' && world.phaseT < 0.9) return;
-  const t = at.t;
+  const t = world.t;
+  const prev = world.prev;
   const flicker = h.invuln > 0 && Math.floor(h.invuln * 14) % 2 === 0 ? 0.35 : 1;
 
   // Squash on landing, stretch on take-off. Volume stays put: width = 1 / sqrt(height).
@@ -379,7 +388,7 @@ function drawHero(world: World, at: HeroFrame, sprite: SpriteFn, part: PartFn, p
   switch (h.pose) {
     case 'run': {
       // A bouncy gallop: two bounces per stride with a little rock.
-      const phase = at.stride * Math.PI * 2;
+      const phase = h.stride * Math.PI * 2;
       lift = Math.abs(Math.sin(phase)) * 2.5;
       rot = Math.sin(phase) * 0.03;
       break;
@@ -408,9 +417,9 @@ function drawHero(world: World, at: HeroFrame, sprite: SpriteFn, part: PartFn, p
       break;
   }
   if (name !== 'pup_walk') {
-    sprite(name, at.x, at.y + lift, { rot, alpha: flicker, sxScale, syScale });
+    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale, px: prev.x, py: prev.y + lift });
     return;
   }
   // Running and airborne: the real Dog Better puppet, legs driven by distance run, tail always wagging.
-  drawPuppet(part, at.x, at.y + lift, { rot, alpha: flicker, sxScale, syScale }, puppetLayers(h, at.stride, t, probe));
+  drawPuppet(part, h.x, h.y + lift, prev.x, prev.y + lift, { rot, alpha: flicker, sxScale, syScale }, puppetLayers(h, h.stride, t, probe));
 }

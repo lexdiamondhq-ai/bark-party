@@ -10,6 +10,7 @@ import {
 } from '@shopify/react-native-skia';
 import { runOnJS, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
+import { STEP } from '../constants';
 import { ATLAS_PAGES } from './atlasImages';
 import { RECT, STRIDE } from './buildFrame';
 
@@ -21,33 +22,56 @@ type Props = {
   background: number;
 };
 
+const STEP_MS = STEP * 1000;
+
 function logUiFps(frames: number) {
   console.log(`[legs probe] UI thread draws at ${frames} Hz`);
 }
 
-/** Draws the op list from buildFrame. Runs on the UI thread every time `ops` changes. */
+/**
+ * Draws the op list from buildFrame. The simulation hands over a new list each of its steps; between
+ * lists, every display frame draws each op part way from where it was to where it is now, so a
+ * 120 Hz screen gets a fresh picture every frame.
+ */
 export function GameCanvas({ ops, width, height, background }: Props) {
   // ATLAS_PAGES has a fixed length, so this keeps the hook order stable.
   const pages = ATLAS_PAGES.map((src) => useImage(src)); // eslint-disable-line react-hooks/rules-of-hooks
   const bg = useImage(background);
   const images: (SkImage | null)[] = [...pages, bg];
 
-  // Development: how fast the UI thread actually draws, logged once, to compare with the JS loop's rate.
-  const fps = useSharedValue({ frames: 0, start: 0, done: !__DEV__ });
+  // How far this display frame sits between the previous simulation step and the latest one.
+  const blend = useSharedValue(1);
+  const clock = useSharedValue<{ seen: number[] | null; at: number; frames: number; start: number; logged: boolean }>({
+    seen: null,
+    at: 0,
+    frames: 0,
+    start: 0,
+    logged: !__DEV__,
+  });
   useFrameCallback((info) => {
     'worklet';
-    const s = fps.value;
-    if (s.done) return;
-    if (!s.start) s.start = info.timestamp;
-    s.frames++;
-    if (info.timestamp - s.start >= 1000) {
-      s.done = true;
-      runOnJS(logUiFps)(s.frames);
+    const c = clock.value;
+    const now = info.timestamp;
+    const list = ops.value;
+    if (list !== c.seen) {
+      c.seen = list;
+      c.at = now;
     }
-  }, __DEV__);
+    const next = Math.min(1, (now - c.at) / STEP_MS);
+    if (next !== blend.value) blend.value = next;
+    if (!c.logged) {
+      if (!c.start) c.start = now;
+      c.frames++;
+      if (now - c.start >= 1000) {
+        c.logged = true;
+        runOnJS(logUiFps)(c.frames);
+      }
+    }
+  }, true);
 
   const picture = useDerivedValue(() => {
     const d = ops.value;
+    const a = blend.value;
     return createPicture(
       (canvas) => {
         const paint = Skia.Paint();
@@ -59,8 +83,10 @@ export function GameCanvas({ ops, width, height, background }: Props) {
           const rot = d[i + 9];
           const alpha = d[i + 10];
           if (alpha <= 0.01) continue;
+          const cx = d[i + 12] + (d[i + 5] - d[i + 12]) * a;
+          const cy = d[i + 13] + (d[i + 6] - d[i + 13]) * a;
           canvas.save();
-          canvas.translate(d[i + 5], d[i + 6]);
+          canvas.translate(cx, cy);
           if (rot !== 0) canvas.rotate((rot * 180) / Math.PI, 0, 0);
           if (img === RECT) {
             const c = d[i + 11];
@@ -89,7 +115,7 @@ export function GameCanvas({ ops, width, height, background }: Props) {
       },
       { width, height },
     );
-  }, [ops, width, height, ...images]);
+  }, [ops, blend, width, height, ...images]);
 
   return (
     <Canvas style={{ width, height }}>

@@ -152,16 +152,19 @@ function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'
   }
 
   const entering = side === 'left' ? FadeInLeft.springify().damping(14) : FadeInRight.springify().damping(14);
+  // The entrance animates the outer view and the bob the inner one, so neither overwrites the other's transform.
   return (
-    <Animated.View entering={entering} style={[styles.actor, bobStyle]}>
-      {actor.kind === 'cage' && <Image source={DOGS[actor.dog]} style={[styles.caged, { opacity: dark ? 0.4 : 1 }]} resizeMode="contain" />}
-      {source !== undefined && (
-        <Image
-          source={source}
-          style={[size, { transform: [{ scaleX: flip ? -1 : 1 }] }, dark ? { tintColor: '#000', opacity: 0.85 } : null]}
-          resizeMode="contain"
-        />
-      )}
+    <Animated.View entering={entering}>
+      <Animated.View style={[styles.actor, bobStyle]}>
+        {actor.kind === 'cage' && <Image source={DOGS[actor.dog]} style={[styles.caged, { opacity: dark ? 0.4 : 1 }]} resizeMode="contain" />}
+        {source !== undefined && (
+          <Image
+            source={source}
+            style={[size, { transform: [{ scaleX: flip ? -1 : 1 }] }, dark ? { tintColor: '#000', opacity: 0.85 } : null]}
+            resizeMode="contain"
+          />
+        )}
+      </Animated.View>
     </Animated.View>
   );
 }

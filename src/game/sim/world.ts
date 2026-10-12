@@ -94,6 +94,22 @@ export function snapPrev(world: World) {
   p.camX = world.camX;
   p.t = world.t;
   p.stride = world.hero.stride;
+  for (const e of world.enemies) {
+    e.px = e.x;
+    e.py = e.y;
+  }
+  for (const a of world.acorns) {
+    a.px = a.x;
+    a.py = a.y;
+  }
+  for (const q of world.particles) {
+    q.px = q.x;
+    q.py = q.y;
+  }
+  if (world.boss) {
+    world.boss.px = world.boss.x;
+    world.boss.py = world.boss.y;
+  }
 }
 
 function makeHero(x: number): Hero {

@@ -74,6 +74,15 @@ Dog Better's 210 px stride does not transfer (it is a 0.5 body-length/s walk; th
 
 Sequencing: atlas -> pupPose + tests -> sim fields and stride -> buildFrame blends -> interpolation -> probe -> typed-array ops measured against the probe.
 
+**Status 2026-10-12: done.**
+Offline check: `DUMP_FRAMES=... npx jest dumpFrames` + `tools/composite_frames.py` showed a clean stride, tuck, apex, landing and rest.
+Alex's iPhone probe answered step 6: the JS loop's `requestAnimationFrame` runs at 60 Hz while the UI thread draws at 119 Hz.
+So the contingency was built: each draw op carries its position one step earlier, and `GameCanvasImpl` blends every op toward its new position on every display frame (`useFrameCallback`), so 120 Hz screens get 120 distinct pictures.
+The JS-side `alpha` lerp from step 5 was removed again (it would double-blend); `World.prev` and the per-entity `px/py` now feed the ops.
+Probes: 0 repeated leg frames on the simulator and on the iPhone; build 0.1 ms, op handoff 1.1-2.0 ms per step.
+Step 8 (typed-array ops) is deferred: 2 ms of a 16.7 ms JS step is inside budget; revisit in the Phase 3 allocation audit.
+Not verified by me: how the 120 Hz blend feels in the hand (Alex's iPhone).
+
 ## Phase 2: how the friends travel (Alex picks)
 
 Before any code, render three phone-size images in the chat, each with the real breed portraits (never a placeholder) behind the pup on the real living-room floor:
