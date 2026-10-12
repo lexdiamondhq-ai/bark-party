@@ -69,8 +69,12 @@ export const motion = {
   reduceMotionConfettiShare: 1 / 3,
 } as const;
 
-/** Squash keeps volume: width = 1 / sqrt(height), measured from the floor. */
+/**
+ * Squash keeps volume: width = 1 / sqrt(height), measured from the floor.
+ * Marked as a worklet because animated styles call it on the UI thread.
+ */
 export function squashWidth(heightScale: number): number {
+  'worklet';
   if (heightScale <= 0) throw new RangeError('heightScale must be positive');
   return 1 / Math.sqrt(heightScale);
 }
