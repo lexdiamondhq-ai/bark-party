@@ -289,9 +289,11 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     const strength = Math.min(1, hero.boost / 0.3);
     const dx = hero.x - prev.x;
     for (let i = 0; i < 4; i++) {
-      const x = hero.x - 48 - i * 19 - ((t * 700 + i * 37) % 44);
-      const y = hero.y + 10 + i * 11 + Math.sin(t * 9 + i) * 2;
-      rect(x, y, 22 + i * 4, 2.4, 0xfff4e2, 0.55 * strength, 0, x - dx, y);
+      const x = hero.x - 50 - i * 19 - ((t * 700 + i * 37) % 44);
+      const y = hero.y + 12 + i * 11 + Math.sin(t * 9 + i) * 2;
+      // Ink streaks with a pale core, so they read on the wood floor and the rugs alike.
+      rect(x, y, 30 + i * 5, 5, COCOA, 0.5 * strength, 0, x - dx, y);
+      rect(x, y, 26 + i * 5, 2, 0xfff4e2, 0.9 * strength, 0, x - dx, y);
     }
   }
 

@@ -79,9 +79,11 @@ export default function Story() {
     else setIndex(index + 1);
   };
 
+  // The tap target is a sibling of Skip, not its parent, so neither platform sees a button inside a button.
   return (
-    <Pressable style={styles.root} onPress={advance} accessibilityRole="button" accessibilityLabel="Next">
-      <Animated.View style={[StyleSheet.absoluteFill, shakeStyle]}>
+    <View style={styles.root}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={advance} accessibilityRole="button" accessibilityLabel="Next" />
+      <Animated.View style={[StyleSheet.absoluteFill, shakeStyle]} pointerEvents="none">
         <ImageBackground source={ROOMS[panel.room]} style={StyleSheet.absoluteFill} resizeMode="cover" imageStyle={{ width: '100%', height: '100%' }}>
           <View style={[StyleSheet.absoluteFill, { backgroundColor: panel.dark ? 'rgba(10,5,20,0.82)' : 'rgba(20,10,31,0.15)' }]} />
         </ImageBackground>
@@ -103,7 +105,7 @@ export default function Story() {
       <Pressable onPress={finish} style={styles.skip} hitSlop={10} accessibilityRole="button" accessibilityLabel="Skip story">
         <Text style={styles.skipText}>Skip</Text>
       </Pressable>
-    </Pressable>
+    </View>
   );
 }
 

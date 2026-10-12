@@ -36,7 +36,38 @@ const CLIP = !!process.env.DUMP_CLIP;
   writeFileSync(OUT!, JSON.stringify({ k, frames }));
 });
 
-(OUT && !CLIP ? it : it.skip)('dumps frames', () => {
+/** Set DUMP_FEEL=1 to dump the slide, zoomies, stomp and bark moments every 50 ms. */
+const FEEL = !!process.env.DUMP_FEEL;
+
+(OUT && FEEL ? it : it.skip)('dumps feel moments', () => {
+  const level = { ...CHAPTER_1, floorSegments: [[-600, 20000]] as [number, number][], platforms: [], enemies: [{ type: 'runner' as const, x: 900, speed: 0 }], pickups: [], cages: [], checkpoints: [], callouts: [], decor: [], boss: undefined };
+  const w = createWorld(level, 640);
+  const k = 1.5;
+  const setup = { atlas: atlas as unknown as AtlasData, background: null, k, screenW: 640 * k, screenH: 360 * k };
+  const frames: { label: string; heroX: number; heroY: number; camX: number; ops: number[] }[] = [];
+  const dump = (label: string) => frames.push({ label, heroX: w.hero.x, heroY: w.hero.y, camX: w.camX, ops: buildFrame(w, setup).data });
+  for (let i = 0; i < 30; i++) stepWorld(w, NO_INPUT, STEP);
+  stepWorld(w, { ...NO_INPUT, slidePressed: true }, STEP);
+  for (let f = 0; f < 24; f++) {
+    for (let j = 0; j < 3; j++) stepWorld(w, NO_INPUT, STEP);
+    dump(`slide ${(f + 1) * 50}ms boost=${w.hero.boost.toFixed(2)} vx=${w.hero.vx.toFixed(0)}`);
+  }
+  // Jump onto the squirrel at 900.
+  while (w.hero.x < 790) stepWorld(w, NO_INPUT, STEP);
+  stepWorld(w, { ...NO_INPUT, jumpPressed: true, jumpHeld: true }, STEP);
+  for (let f = 0; f < 16; f++) {
+    for (let j = 0; j < 3; j++) stepWorld(w, f < 3 ? { ...NO_INPUT, jumpHeld: true } : NO_INPUT, STEP);
+    dump(`stomp ${(f + 1) * 50}ms hs=${w.hitstop.toFixed(2)} e=${w.enemies[0]?.state}`);
+  }
+  stepWorld(w, { ...NO_INPUT, barkPressed: true }, STEP);
+  for (let f = 0; f < 8; f++) {
+    for (let j = 0; j < 3; j++) stepWorld(w, NO_INPUT, STEP);
+    dump(`bark ${(f + 1) * 50}ms`);
+  }
+  writeFileSync(OUT!, JSON.stringify({ k, frames }));
+});
+
+(OUT && !CLIP && !FEEL ? it : it.skip)('dumps frames', () => {
   const flat = { ...CHAPTER_1, floorSegments: [[-600, 20000]] as [number, number][], platforms: [{ sprite: 'cardboard_box' as const, x: 2200, solid: true }], enemies: [], pickups: [], cages: [], checkpoints: [], callouts: [], decor: [], boss: undefined };
   const w = createWorld(flat, 640);
   const k = 2;
