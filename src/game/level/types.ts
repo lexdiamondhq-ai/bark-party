@@ -57,6 +57,8 @@ export interface LevelDef {
   chapter: number;
   title: string;
   subtitle: string;
+  /** The results screen's headline when the chapter is beaten. */
+  winTitle: string;
   background: 'room_living' | 'room_cosy' | 'room_kitchen' | 'room_park' | 'room_yard';
   floor: SpriteName;
   music: string;

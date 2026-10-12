@@ -1,6 +1,7 @@
 import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, STRIDE_LEN } from '../constants';
 import type { LevelDef } from '../level/types';
 import { PUP_LEG_FRAMES, SPRITES, type SpriteName } from '../sprites';
+import { NO_BOOSTS, type RunBoosts } from '../../engine/progress';
 import { seededRng } from '../../engine/rng';
 import { HITSTOP, addShake, cameraLead, cameraLift, decayShake, landImpact, type ShakeKind } from './feel';
 import type { Acorn, Boss, Enemy, GameEvent, Hero, Input, Particle, Platform, World } from './types';
@@ -15,7 +16,7 @@ const TRAIL_MAX = 240;
 export const BOSS_LEAD = 300;
 const CONFETTI = ['#FFB020', '#FF5A8A', '#19C3B1', '#48A6FF', '#8EDB3F', '#7B5CFF'];
 
-export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
+export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: RunBoosts = NO_BOOSTS): World {
   const platforms: Platform[] = level.platforms.map((p) => {
     const s = SPRITES[p.sprite] as { w: number; h: number; top?: number };
     const y = p.y ?? 0;
@@ -23,14 +24,17 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
   });
   let id = 0;
   const enemies: Enemy[] = level.enemies.map((e) => makeEnemy(e, id++));
+  const maxHearts = MAX_HEARTS + boosts.extraHearts;
   const world: World = {
     level,
     viewW,
+    boosts,
+    maxHearts,
     rng: seededRng(seed),
     t: 0,
     phase: 'run',
     phaseT: 0,
-    hero: makeHero(0, level.runSpeed),
+    hero: makeHero(0, level.runSpeed, maxHearts),
     prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0 },
     camX: 0,
     camY: 0,
@@ -120,7 +124,7 @@ export function snapPrev(world: World) {
   }
 }
 
-function makeHero(x: number, vx: number): Hero {
+function makeHero(x: number, vx: number, hearts: number): Hero {
   return {
     x,
     y: 0,
@@ -138,7 +142,7 @@ function makeHero(x: number, vx: number): Hero {
     boost: 0,
     landImpact: 0,
     invuln: 0,
-    hearts: MAX_HEARTS,
+    hearts,
     sinceLand: 1,
     stride: 0,
     blocked: false,
@@ -367,7 +371,7 @@ function stepHero(world: World, input: Input, dt: number) {
       haptic(world, 'light');
       dust(world, h.x, h.y, 3);
     } else if (h.jumpsUsed < 2) {
-      h.vy = PHYS.doubleJumpVelocity;
+      h.vy = PHYS.doubleJumpVelocity + world.boosts.doubleJumpBonus;
       h.jumpsUsed = 2;
       h.jumpBuffer = 0;
       sfx(world, 'double_jump');
@@ -482,7 +486,7 @@ function bark(world: World) {
 /** The bark keeps swatting for its whole duration, so a slightly early press still works. */
 function barkWave(world: World) {
   const h = world.hero;
-  const reach = PHYS.barkRange;
+  const reach = PHYS.barkRange + world.boosts.barkRangeBonus;
   for (const e of world.enemies) {
     if (e.state !== 'active') continue;
     if (e.type === 'vacuum' || e.type === 'blocks') continue;
@@ -565,9 +569,7 @@ function loseHeart(world: World, fell: boolean) {
 
 function respawn(world: World) {
   const h = world.hero;
-  const hearts = h.hearts;
-  Object.assign(h, makeHero(world.respawnX, world.level.runSpeed));
-  h.hearts = hearts;
+  Object.assign(h, makeHero(world.respawnX, world.level.runSpeed, h.hearts));
   h.invuln = 1.2;
   h.y = groundBelow(world, h.x, 10, 999) ?? 0;
   world.phase = world.boss && world.boss.phase !== 'waiting' && world.boss.phase !== 'gone' ? 'boss' : 'run';
@@ -582,7 +584,7 @@ function respawn(world: World) {
 
 /** After a game over: try again from the last balloon post with full hearts. */
 export function continueFromCheckpoint(world: World) {
-  world.hero.hearts = MAX_HEARTS;
+  world.hero.hearts = world.maxHearts;
   respawn(world);
   if (world.boss && world.boss.phase !== 'waiting') {
     // The boss fight restarts from the top so the chase stays fair.
@@ -909,10 +911,22 @@ function win(world: World) {
 
 function collectPickups(world: World, dt: number) {
   const h = world.hero;
+  const magnet = world.boosts.magnetRange;
   for (const p of world.pickups) {
     if (p.taken) {
       p.takenT += dt;
       continue;
+    }
+    if (magnet > 0 && p.kind === 'bone') {
+      // The Bone Sniffer: bones within reach drift to the dog's nose.
+      const dx = h.x - p.x;
+      const dy = h.y + 30 - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d < magnet && d > 1) {
+        const pull = Math.min(1, (dt * 9 * (1.2 - d / magnet)) / 1);
+        p.x += dx * pull;
+        p.y += dy * pull;
+      }
     }
     if (Math.abs(p.x - h.x) < 34 && p.y + 10 > h.y - 6 && p.y < h.y + HERO_BOX.h + 10) {
       p.taken = true;

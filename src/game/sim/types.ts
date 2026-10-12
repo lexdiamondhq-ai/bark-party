@@ -1,6 +1,7 @@
 import type { CoachId, LevelDef } from '../level/types';
 import type { Rng } from '../../engine/rng';
 import type { DogId, SpriteName } from '../sprites';
+import type { RunBoosts } from '../../engine/progress';
 import type { ShakeKind, ShakeState } from './feel';
 
 export interface Input {
@@ -194,6 +195,9 @@ export type WorldPhase = 'run' | 'boss' | 'respawn' | 'won' | 'dead';
 export interface World {
   level: LevelDef;
   viewW: number;
+  /** Treats bought in the shop, applied to this run. */
+  boosts: RunBoosts;
+  maxHearts: number;
   rng: Rng;
   t: number;
   phase: WorldPhase;

@@ -27,7 +27,8 @@ import Animated, {
 import { colors, fonts, springs } from '../theme/tokens';
 import { initAudio, pauseMusic, playMusic, playSfx, preloadSfx, isMuted, setMuted } from './audio';
 import { COACH_CHEER, DOGS, HUD, ROOMS, ROOM_SIZE } from './art';
-import { MAX_HEARTS, STEP, VIEW_H } from './constants';
+import { NO_BOOSTS, type RunBoosts } from '../engine/progress';
+import { STEP, VIEW_H } from './constants';
 import type { CoachId, LevelDef } from './level/types';
 import { GameCanvas } from './render/GameCanvas';
 import { ATLAS_PAGES } from './render/atlasImages';
@@ -38,8 +39,8 @@ import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelRe
 import type { DogId } from './sprites';
 import { BOSS_NAME, DOG_NAMES } from './story';
 
-function createStartWorld(level: LevelDef, viewW: number, startX?: number) {
-  const w = createWorld(level, viewW, 11);
+function createStartWorld(level: LevelDef, viewW: number, startX: number | undefined, boosts: RunBoosts) {
+  const w = createWorld(level, viewW, 11, boosts);
   if (startX && __DEV__) {
     w.hero.x = startX;
     w.respawnX = startX;
@@ -83,38 +84,51 @@ const BARK_SIZE = 96;
 
 type Props = {
   level: LevelDef;
+  /** Treats bought in the shop. */
+  boosts?: RunBoosts;
   onWin: (result: LevelResult) => void;
-  onQuit: () => void;
+  /** Quit from the pause menu: the bones picked up so far still count. */
+  onQuit: (result: LevelResult) => void;
   /** Development only: start the run at this x (for testing later parts of a level). */
   startX?: number;
 };
 
 type Callout = { key: number; coach?: CoachId; dog?: DogId; text: string };
 
-export function GameView({ level, onWin, onQuit, startX }: Props) {
+/** The run from the player's side: a count-in, then running, with pauses, game over and the win. */
+type RunState = 'ready' | 'running' | 'paused' | 'gameover' | 'won';
+
+/** Seconds of "Ready?" then "Go!" before the dog starts. */
+const COUNT_IN = { ready: 0.9, go: 0.5 };
+
+export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: Props) {
   const { width, height } = useWindowDimensions();
   const k = height / VIEW_H;
   const viewW = width / k;
 
-  const [world] = useState(() => createStartWorld(level, viewW, startX));
+  const [world] = useState(() => createStartWorld(level, viewW, startX, boosts));
   const ops = useSharedValue<number[]>([]);
   const input = useRef<Input>({ ...NO_INPUT });
   const jumpTouch = useRef<{ id: string; y: number; slid: boolean } | null>(null);
-  const paused = useRef(false);
+  const runState = useRef<RunState>('ready');
   const reduceMotion = useRef(false);
   const doneRef = useRef(false);
   const probe = useRef<Probe | null>(__DEV__ ? { label: 'level start', rows: [], until: 0 } : null);
   const probedJump = useRef(false);
 
-  const [hearts, setHearts] = useState(MAX_HEARTS);
+  const [hearts, setHearts] = useState(world.maxHearts);
   const [bones, setBones] = useState(0);
   const [friends, setFriends] = useState<DogId[]>([]);
   const [callout, setCallout] = useState<Callout | null>(null);
   const [boss, setBoss] = useState<{ hits: number; needed: number } | null>(null);
   const [banner, setBanner] = useState<{ key: number; text: string } | null>(null);
-  const [gameOver, setGameOver] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [state, setState] = useState<RunState>('ready');
+  const [countIn, setCountIn] = useState<'ready' | 'go' | null>('ready');
   const [muted, setMutedState] = useState(isMuted());
+  const setRun = useCallback((s: RunState) => {
+    runState.current = s;
+    setState(s);
+  }, []);
 
   const barkScale = useSharedValue(1);
   const barkStyle = useAnimatedStyle(() => ({ transform: [{ scale: barkScale.value }] }));
@@ -137,6 +151,20 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
     playMusic(level.music);
     return () => playMusic('none');
   }, [level.music, world]);
+
+  // Count-in: "Ready?" then "Go!", and the dog is off.
+  useEffect(() => {
+    const go = setTimeout(() => {
+      setCountIn('go');
+      playSfx('whoosh');
+      setRun('running');
+    }, COUNT_IN.ready * 1000);
+    const done = setTimeout(() => setCountIn(null), (COUNT_IN.ready + COUNT_IN.go) * 1000);
+    return () => {
+      clearTimeout(go);
+      clearTimeout(done);
+    };
+  }, [setRun]);
 
   const calloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showCallout = useCallback((c: Omit<Callout, 'key'>, ms = 2800) => {
@@ -191,11 +219,12 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
           case 'won':
             if (!doneRef.current) {
               doneRef.current = true;
+              setRun('won');
               onWin(levelResult(world));
             }
             break;
           case 'gameover':
-            setGameOver(true);
+            setRun('gameover');
             break;
           case 'music':
             playMusic(e.name);
@@ -203,7 +232,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         }
       }
     },
-    [onWin, showBanner, showCallout, world],
+    [onWin, setRun, showBanner, showCallout, world],
   );
 
   // The game loop: fixed 60 Hz steps on the JS thread, then one frame of draw ops for the UI thread.
@@ -220,10 +249,15 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
       if (!last) last = now;
       const elapsed = Math.min(0.1, (now - last) / 1000);
       last = now;
-      if (paused.current) return;
+      const s = runState.current;
+      if (s !== 'running' && s !== 'won') {
+        acc = 0;
+        if (s !== 'ready' || out.count > 0) return;
+        // Before "Go!", draw the still scene once so the count-in has something behind it.
+      }
       acc += elapsed;
       let steps = 0;
-      while (acc >= STEP && steps < 4) {
+      while (s !== 'ready' && acc >= STEP && steps < 4) {
         const i = input.current;
         stepWorld(world, i, STEP);
         i.jumpPressed = false;
@@ -233,7 +267,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         steps++;
       }
       if (steps === 4) acc = 0;
-      if (steps === 0) return;
+      if (steps === 0 && s !== 'ready') return;
       // One op list per step; the canvas draws the frames in between (see GameCanvasImpl).
       const t0 = __DEV__ ? performance.now() : 0;
       out.data = [];
@@ -270,9 +304,11 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
   }, [boneBump, handleEvents, height, k, ops, width, world]);
 
   const togglePause = () => {
-    paused.current = !paused.current;
-    setIsPaused(paused.current);
-    pauseMusic(paused.current);
+    const s = runState.current;
+    if (s !== 'running' && s !== 'paused') return;
+    const next = s === 'running' ? 'paused' : 'running';
+    setRun(next);
+    pauseMusic(next === 'paused');
     playSfx('button');
   };
 
@@ -344,9 +380,18 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
     continueFromCheckpoint(world);
     drainEvents(world);
     setHearts(world.hero.hearts);
-    setGameOver(false);
+    setRun('running');
     playMusic(world.phase === 'boss' ? 'music_boss' : level.music);
   };
+
+  const quit = () => {
+    setRun('paused');
+    playMusic('none');
+    onQuit(levelResult(world));
+  };
+
+  const isPaused = state === 'paused';
+  const gameOver = state === 'gameover';
 
   const pad = Math.max(16, width * 0.03);
 
@@ -365,7 +410,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
       {/* HUD */}
       <View pointerEvents="box-none" style={[styles.hud, { left: pad, top: 12 }]}>
         <View style={styles.hudRow} pointerEvents="none">
-          {Array.from({ length: MAX_HEARTS }, (_, i) => (
+          {Array.from({ length: world.maxHearts }, (_, i) => (
             <Heart key={i} full={i < hearts} />
           ))}
         </View>
@@ -447,6 +492,12 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         </Animated.View>
       )}
 
+      {countIn && (
+        <Animated.View key={countIn} entering={ZoomIn.springify().damping(9)} exiting={FadeOut.duration(150)} pointerEvents="none" style={styles.bannerWrap}>
+          <Text style={[styles.banner, countIn === 'go' ? styles.go : null]}>{countIn === 'ready' ? 'Ready?' : 'GO!'}</Text>
+        </Animated.View>
+      )}
+
       {(isPaused || gameOver) && (
         <Animated.View entering={FadeIn.duration(150)} style={styles.scrim}>
           <View style={styles.panel}>
@@ -466,14 +517,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
                 <Text style={styles.btnText}>{muted ? 'Sound: off' : 'Sound: on'}</Text>
               </Pressable>
             )}
-            <Pressable
-              style={[styles.btn, styles.btnGlass]}
-              onPress={() => {
-                paused.current = true;
-                playMusic('none');
-                onQuit();
-              }}
-            >
+            <Pressable style={[styles.btn, styles.btnGlass]} onPress={quit}>
               <Text style={styles.btnText}>Quit to title</Text>
             </Pressable>
           </View>
@@ -581,6 +625,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 0,
     transform: [{ rotate: '-6deg' }],
   },
+  go: { fontSize: 96, color: colors.kiwi },
   scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(20,10,31,0.72)', alignItems: 'center', justifyContent: 'center' },
   panel: {
     backgroundColor: 'rgba(255,244,226,0.12)',

@@ -21,6 +21,7 @@ export const CHAPTER_1: LevelDef = {
   chapter: 1,
   title: 'The Living Room',
   subtitle: 'The cake is missing!',
+  winTitle: 'Cake saved!',
   background: 'room_living',
   floor: 'floor_living',
   music: 'music_living',
@@ -121,3 +122,8 @@ export const CHAPTER_1: LevelDef = {
 };
 
 export const LEVELS: LevelDef[] = [CHAPTER_1];
+export const CHAPTER_IDS = LEVELS.map((l) => l.id);
+
+export function levelById(id: string | undefined): LevelDef | undefined {
+  return LEVELS.find((l) => l.id === id);
+}

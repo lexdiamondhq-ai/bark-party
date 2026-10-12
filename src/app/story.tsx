@@ -15,20 +15,24 @@ import Animated, {
 
 import { COACH_FULL, DOGS, PUP, ROOMS } from '../game/art';
 import { initAudio, playMusic, playSfx } from '../game/audio';
-import { CH1_INTRO, CH1_OUTRO, type Actor, type StoryPanel } from '../game/story';
+import { STORIES, type Actor, type StoryPanel } from '../game/story';
 import { STORY_SPRITES } from '../game/storyArt';
 import { colors, fonts, springs } from '../theme/tokens';
 
-const SCENES: Record<string, { panels: StoryPanel[]; next: string }> = {
-  ch1_intro: { panels: CH1_INTRO, next: '/play' },
-  ch1_outro: { panels: CH1_OUTRO, next: '/' },
-};
+/** `scene` is `<chapter>_intro` or `<chapter>_outro`; an intro leads into the chapter, an outro back to the title. */
+function sceneFor(scene: string): { panels: StoryPanel[]; next: { pathname: '/play' | '/'; params?: { chapter: string } } } {
+  const m = /^(.+)_(intro|outro)$/.exec(scene);
+  const chapter = m?.[1] ?? 'ch1';
+  const story = STORIES[chapter] ?? STORIES.ch1;
+  if (m?.[2] === 'outro' && story.outro) return { panels: story.outro, next: { pathname: '/' } };
+  return { panels: story.intro, next: { pathname: '/play', params: { chapter } } };
+}
 
 const CPS = 48; // typewriter characters per second
 
 export default function Story() {
   const { scene = 'ch1_intro' } = useLocalSearchParams<{ scene?: string }>();
-  const def = SCENES[scene] ?? SCENES.ch1_intro;
+  const def = sceneFor(scene);
   const [index, setIndex] = useState(0);
   // Characters typed so far, tagged with their panel so a new panel starts at zero without a reset in an effect.
   const [typed, setTyped] = useState({ index: 0, n: 0 });
@@ -66,7 +70,7 @@ export default function Story() {
 
   const finish = () => {
     playSfx('whoosh');
-    router.replace(def.next as '/play');
+    router.replace(def.next);
   };
 
   const advance = () => {

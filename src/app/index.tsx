@@ -3,8 +3,11 @@ import { useEffect } from 'react';
 import { Image, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
+import { nextChapter } from '../engine/progress';
 import { DOGS, HUD, PUP, ROOMS } from '../game/art';
 import { initAudio, playMusic, playSfx } from '../game/audio';
+import { CHAPTER_IDS, LEVELS, levelById } from '../game/level/chapter1';
+import { useProgress } from '../lib/progress';
 import { colors, fonts } from '../theme/tokens';
 
 export default function Title() {
@@ -32,9 +35,11 @@ export default function Title() {
   }));
   const logoStyle = useAnimatedStyle(() => ({ transform: [{ rotate: '-6deg' }, { scale: 1 + logo.value * 0.04 }] }));
 
+  const { progress } = useProgress();
+  const next = levelById(nextChapter(progress, CHAPTER_IDS)) ?? LEVELS[0];
   const start = () => {
     playSfx('bark');
-    router.push({ pathname: '/story', params: { scene: 'ch1_intro' } });
+    router.push({ pathname: '/story', params: { scene: `${next.id}_intro` } });
   };
 
   return (
@@ -43,12 +48,14 @@ export default function Title() {
       <Animated.Text style={[styles.logo, logoStyle]} accessibilityRole="header">
         Dog Runner
       </Animated.Text>
-      <Text style={styles.tag}>Chapter 1: The Living Room</Text>
+      <Text style={styles.tag}>
+        Chapter {next.chapter}: {next.title}
+      </Text>
       <View style={styles.actions}>
         <Pressable style={[styles.btn, styles.gold]} onPress={start} accessibilityRole="button">
           <Text style={styles.btnDark}>Play</Text>
         </Pressable>
-        <Pressable style={[styles.btn, styles.glass]} onPress={() => router.push('/play')} accessibilityRole="button">
+        <Pressable style={[styles.btn, styles.glass]} onPress={() => router.push({ pathname: '/play', params: { chapter: next.id } })} accessibilityRole="button">
           <Text style={styles.btnLight}>Skip story</Text>
         </Pressable>
       </View>

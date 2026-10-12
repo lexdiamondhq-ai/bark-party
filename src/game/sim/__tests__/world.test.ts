@@ -12,6 +12,7 @@ function flat(extra: Partial<LevelDef> = {}): LevelDef {
     chapter: 0,
     title: 'Test',
     subtitle: '',
+    winTitle: 'Done!',
     background: 'room_living',
     floor: 'floor_living',
     music: 'none',

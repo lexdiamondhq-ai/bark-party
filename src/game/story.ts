@@ -90,6 +90,9 @@ export const CH1_INTRO: StoryPanel[] = [
   },
 ];
 
+/** Story scenes by chapter id. A chapter without an outro goes straight back to the map. */
+export const STORIES: Record<string, { intro: StoryPanel[]; outro?: StoryPanel[] }> = {};
+
 export const CH1_OUTRO: StoryPanel[] = [
   {
     room: 'room_living',
@@ -113,3 +116,5 @@ export const CH1_OUTRO: StoryPanel[] = [
     right: { kind: 'gang' },
   },
 ];
+
+STORIES.ch1 = { intro: CH1_INTRO, outro: CH1_OUTRO };

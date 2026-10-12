@@ -5,11 +5,16 @@ import Animated, { ZoomIn, FadeInUp } from 'react-native-reanimated';
 
 import { ROOMS } from '../game/art';
 import { playMusic, playSfx } from '../game/audio';
+import { LEVELS, levelById } from '../game/level/chapter1';
+import { STORIES } from '../game/story';
 import { colors, fonts } from '../theme/tokens';
 
 export default function Results() {
   const p = useLocalSearchParams<Record<string, string>>();
   const stars = Number(p.stars ?? 1);
+  const level = levelById(p.chapter) ?? LEVELS[0];
+  const outro = STORIES[level.id]?.outro;
+  const next = () => (outro ? router.replace({ pathname: '/story', params: { scene: `${level.id}_outro` } }) : router.replace('/'));
 
   useEffect(() => {
     playMusic('none');
@@ -17,9 +22,9 @@ export default function Results() {
   }, []);
 
   return (
-    <ImageBackground source={ROOMS.room_living} style={styles.root} resizeMode="cover" imageStyle={{ width: '100%', height: '100%' }}>
+    <ImageBackground source={ROOMS[level.background]} style={styles.root} resizeMode="cover" imageStyle={{ width: '100%', height: '100%' }}>
       <View style={styles.scrim} />
-      <Text style={styles.title}>Cake saved!</Text>
+      <Text style={styles.title}>{level.winTitle}</Text>
       <View style={styles.stars}>
         {[0, 1, 2].map((i) => (
           <Animated.Text
@@ -38,10 +43,10 @@ export default function Results() {
         <Row label="Time" value={`${p.time} s`} />
       </Animated.View>
       <Animated.View entering={FadeInUp.delay(1700)} style={styles.actions}>
-        <Pressable style={[styles.btn, styles.gold]} onPress={() => router.replace({ pathname: '/story', params: { scene: 'ch1_outro' } })}>
+        <Pressable style={[styles.btn, styles.gold]} onPress={next}>
           <Text style={styles.btnDark}>Continue</Text>
         </Pressable>
-        <Pressable style={[styles.btn, styles.glass]} onPress={() => router.replace('/play')}>
+        <Pressable style={[styles.btn, styles.glass]} onPress={() => router.replace({ pathname: '/play', params: { chapter: level.id } })}>
           <Text style={styles.btnLight}>Play again</Text>
         </Pressable>
       </Animated.View>
