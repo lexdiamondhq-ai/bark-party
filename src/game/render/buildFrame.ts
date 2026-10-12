@@ -5,6 +5,7 @@ import { FLOOR_SCREEN_Y } from '../constants';
 import { SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD } from '../sim/world';
 import type { Hero, World } from '../sim/types';
+import { followerDraws, type FollowerStyle } from './followers';
 import { TUCK_DOWN, TUCK_UP, puppetPose } from './pupPose';
 
 /**
@@ -34,6 +35,8 @@ export interface FrameSetup {
   screenW: number;
   screenH: number;
   reduceMotion?: boolean;
+  /** How the freed pups travel (default 'hop'). */
+  followerStyle?: FollowerStyle;
   /** Development: filled in with the hero frames actually drawn, for the frame-rate probe. */
   probe?: PupProbe;
 }
@@ -242,17 +245,14 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     sprite(a.golden ? 'acorn_golden' : 'acorn', a.x, a.y - 9, { rot: a.spin, scale: a.golden ? 1.4 : 1, px: a.px, py: a.py === undefined ? undefined : a.py - 9 });
   }
 
-  // Rescued friends hop along behind the dog.
-  world.followers.forEach((dog, i) => {
-    const idx = Math.min(world.trail.length - 1, 14 + i * 13);
-    if (idx < 0) return;
-    const p = world.trail[idx];
-    const q = world.trail[Math.min(world.trail.length - 1, idx + 1)];
-    const hop = Math.abs(Math.sin(t * 11 + i * 1.7));
-    const y = p.y + hop * 10;
-    const squash = 1 - (1 - hop) * 0.08;
-    sprite(dogSprite(dog), p.x - 30 - i * 6, y, { scale: 0.92, syScale: squash, sxScale: 1 / Math.sqrt(squash), px: q.x - 30 - i * 6, py: q.y + hop * 10 });
-  });
+  // Rescued friends travel behind the dog.
+  const friends = followerDraws(world, t, setup.followerStyle ?? 'hop');
+  for (const r of friends.ropes) {
+    const dx = r.x1 - r.x0;
+    const dy = r.y1 - r.y0;
+    rect((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, Math.hypot(dx, dy), 2.2, COCOA, 0.9, -Math.atan2(dy, dx));
+  }
+  for (const s of friends.sprites) sprite(s.sprite, s.x, s.y, s);
 
   drawHero(
     world,

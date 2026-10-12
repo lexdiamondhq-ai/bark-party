@@ -9,8 +9,34 @@ import { buildFrame, type AtlasData } from '../buildFrame';
 import atlas from '../atlas.json';
 
 const OUT = process.env.DUMP_FRAMES;
+/** Set to hop, wagon or balloon to dump a 30 fps clip of the hero jumping a pit with two friends instead. */
+const STYLE = process.env.DUMP_STYLE as 'hop' | 'wagon' | 'balloon' | undefined;
 
-(OUT ? it : it.skip)('dumps frames', () => {
+(OUT && STYLE ? it : it.skip)('dumps a friends clip', () => {
+  const level = { ...CHAPTER_1, floorSegments: [[-600, 700], [850, 20000]] as [number, number][], platforms: [], enemies: [], pickups: [], cages: [], checkpoints: [], callouts: [], decor: [{ sprite: 'rug' as const, x: 300 }, { sprite: 'potted_plant' as const, x: 1000 }], boss: undefined };
+  const w = createWorld(level, 640);
+  w.followers.push('husky', 'frenchie');
+  const k = 1.5;
+  const setup = { atlas: atlas as unknown as AtlasData, background: null, k, screenW: 640 * k, screenH: 360 * k, followerStyle: STYLE };
+  const frames: { label: string; heroX: number; heroY: number; camX: number; ops: number[] }[] = [];
+  const press: Input = { ...NO_INPUT, jumpPressed: true, jumpHeld: true };
+  const hold: Input = { ...NO_INPUT, jumpHeld: true };
+  // Warm up so the trail is full, then 2.6 s at 30 fps: run, jump the pit at x≈700, land, run on.
+  for (let i = 0; i < 90; i++) stepWorld(w, NO_INPUT, STEP);
+  let held = 0;
+  for (let f = 0; f < 78; f++) {
+    for (let j = 0; j < 2; j++) {
+      const nearPit = w.hero.x > 640 && w.hero.onGround && held === 0;
+      const input = nearPit ? press : held > 0 && held < 12 ? hold : NO_INPUT;
+      if (nearPit || (held > 0 && held < 12)) held++;
+      stepWorld(w, input, STEP);
+    }
+    frames.push({ label: '', heroX: w.hero.x, heroY: w.hero.y, camX: w.camX, ops: buildFrame(w, setup).data });
+  }
+  writeFileSync(OUT!, JSON.stringify({ k, frames }));
+});
+
+(OUT && !STYLE ? it : it.skip)('dumps frames', () => {
   const flat = { ...CHAPTER_1, floorSegments: [[-600, 20000]] as [number, number][], platforms: [{ sprite: 'cardboard_box' as const, x: 2200, solid: true }], enemies: [], pickups: [], cages: [], checkpoints: [], callouts: [], decor: [], boss: undefined };
   const w = createWorld(flat, 640);
   const k = 2;

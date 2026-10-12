@@ -8,11 +8,12 @@
 //
 // Usage: node tools/render_sprites.js [name ...]      (no names = render all)
 // Needs Playwright: set NODE_PATH or PLAYWRIGHT_DIR if `require('playwright')` does not resolve.
+// With playwright-core (no bundled browser), set CHROME_PATH to a Chrome or Chromium executable.
 const fs = require('fs');
 const path = require('path');
 
 function loadPlaywright() {
-  const tries = [process.env.PLAYWRIGHT_DIR, '/tmp/claude-0/node_modules/playwright', 'playwright'].filter(Boolean);
+  const tries = [process.env.PLAYWRIGHT_DIR, '/tmp/claude-0/node_modules/playwright', 'playwright', 'playwright-core'].filter(Boolean);
   for (const t of tries) {
     try {
       return require(t);
@@ -46,9 +47,9 @@ function attr(svg, name) {
     ? `@font-face{font-family:'Bagel Fat One';src:url(data:font/ttf;base64,${fs.readFileSync(FONT).toString('base64')}) format('truetype');}`
     : '';
   const browser = await chromium.launch({
-    executablePath: fs.existsSync('/opt/pw-browsers/chromium') && fs.statSync('/opt/pw-browsers/chromium').isFile()
-      ? '/opt/pw-browsers/chromium'
-      : undefined,
+    executablePath:
+      process.env.CHROME_PATH ||
+      (fs.existsSync('/opt/pw-browsers/chromium') && fs.statSync('/opt/pw-browsers/chromium').isFile() ? '/opt/pw-browsers/chromium' : undefined),
   });
   const page = await browser.newPage({ deviceScaleFactor: 1 });
   const manifestPath = path.join(OUT_DIR, 'manifest.json');

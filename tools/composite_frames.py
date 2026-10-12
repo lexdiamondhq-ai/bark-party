@@ -16,10 +16,11 @@ out_path = sys.argv[2]
 k = data['k']
 pages = [Image.open(f'{ROOT}/assets/game/atlas/{p}').convert('RGBA') for p in json.load(open(f'{ROOT}/src/game/render/atlas.json'))['pages']]
 
+GIF = out_path.endswith('.gif')
 CROP = 320  # px around the hero
 tiles = []
 for fr in data['frames']:
-    W, H = 640 * k, 360 * k
+    W, H = int(640 * k), int(360 * k)
     canvas = Image.new('RGBA', (W, H), (240, 230, 220, 255))
     d = fr['ops']
     for i in range(0, len(d), STRIDE):
@@ -40,6 +41,10 @@ for fr in data['frames']:
         if rot:
             layer = layer.rotate(-rot * 180 / math.pi, resample=Image.BICUBIC, expand=True)
         canvas.alpha_composite(layer, (int(round(cx - layer.width / 2)), int(round(cy - layer.height / 2))))
+    if GIF:
+        # The whole view, as the phone shows it, with the camera's own framing.
+        tiles.append(canvas.convert('RGB'))
+        continue
     # Crop around the hero (screen x of the hero = (heroX - camX) * k).
     hx = (fr['heroX'] - fr['camX']) * k
     hy = (FLOOR_SCREEN_Y - fr['heroY']) * k
@@ -47,6 +52,12 @@ for fr in data['frames']:
     tile = canvas.crop(box)
     ImageDraw.Draw(tile).text((6, 6), fr['label'], fill=(20, 10, 10, 255))
     tiles.append(tile)
+
+if GIF:
+    fps = int(sys.argv[3]) if len(sys.argv) > 3 else 30
+    tiles[0].save(out_path, save_all=True, append_images=tiles[1:], duration=int(1000 / fps), loop=0, optimize=False)
+    print('wrote', out_path, tiles[0].size, len(tiles), 'frames at', fps, 'fps')
+    sys.exit(0)
 
 cols = 8
 rows = math.ceil(len(tiles) / cols)

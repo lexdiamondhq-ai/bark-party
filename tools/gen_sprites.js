@@ -865,6 +865,34 @@ function barkBurst() {
   return g;
 }
 
+// A little red party wagon the freed pups can ride in (tow ring at the front, right).
+function wagon() {
+  let g = '';
+  g += blob(R(16, 29, 64, 4, 2), C.vacS, null, { O: 1.2 });
+  g += blob(P('M7 9 L89 9 L85 31 L11 31 Z'), C.red, C.redS, {
+    O: 2, so: 1.6, off: [1.4, -1.6],
+    extra: `<path d="M13 14 L83 14" stroke="${WH}" stroke-opacity="0.35" stroke-width="1.6" stroke-linecap="round"/><path d="M8 24 L88 24" stroke="${C.redS}" stroke-width="1" stroke-linecap="round"/>`,
+  });
+  g += blob(R(4, 4, 88, 7, 3.5), '#FFF4DE', '#EAD3A6', { O: 1.6, so: 1, off: [0.8, -1] });
+  for (const x of [24, 72]) {
+    g += blob(Ci(x, 34, 9), '#4A3E39', '#36302C', { O: 1.8, so: 1.4 });
+    g += blob(Ci(x, 34, 3.2), C.gold, C.goldS, { O: 1.1, so: 0.6 });
+    g += `<path d="M${x - 5.6} ${34} L${x + 5.6} ${34} M${x} ${34 - 5.6} L${x} ${34 + 5.6}" stroke="#36302C" stroke-width="1" stroke-linecap="round"/>`;
+  }
+  g += strokes([`M90 18 Q94 16 94.5 12`], 1.6, C.gold, { O: 1 });
+  return g;
+}
+
+// A party balloon on a string, for a pup to float along behind the hero.
+function balloon(col, colS) {
+  let g = '';
+  g += ln('M14 34.4 Q10.6 42 14 49 Q17.4 56 14 62.6', 0.7);
+  g += blob(P('M14 33.2 L11.6 36.4 L16.4 36.4 Z'), col, colS, { O: 1.2, so: 0.5 });
+  g += blob(P('M14 34 C3 33.2 1 19.6 2 14.6 C3.5 6.6 9 4.8 14 4.8 C19 4.8 24.5 6.6 26 14.6 C27 19.6 25 33.2 14 34 Z'), col, colS, { O: 1.5, so: 2, off: [2.2, -1.6] });
+  g += `<path d="M20.6 9.2 Q23.6 11.2 23.6 15" fill="none" stroke="${WH}" stroke-width="1.6" stroke-linecap="round"/>`;
+  return g;
+}
+
 // ---------------------------------------------------------------- registry
 const S = {};
 const add = (name, W, H, O, fn, top) => (S[name] = { W, H, O, fn, top });
@@ -916,6 +944,10 @@ add('bark_burst', 90, 56, 1.8, () => barkBurst());
 add('heart_full', 24, 22, 1.4, () => blob(P(heartPath(12, 11.6, 9.6)), C.gum, C.gumS, { so: 1.6, extra: `<ellipse cx="16" cy="6.8" rx="2" ry="1.3" fill="${WH}" fill-opacity="0.85" transform="rotate(30 16 6.8)"/>` }));
 add('heart_empty', 24, 22, 1.4, () => blob(P(heartPath(12, 11.6, 9.6)), '#E9DAD2', '#D5C2B8', { so: 1.6 }));
 add('bone_icon', 28, 16, 1.4, () => bone(28, 16, false, 1.4));
+add('wagon', 96, 44, 2, () => wagon());
+add('balloon_blue', 28, 64, 1.4, () => balloon(C.sky, C.skyS));
+add('balloon_pink', 28, 64, 1.4, () => balloon(C.gum, C.gumS));
+add('balloon_gold', 28, 64, 1.4, () => balloon(C.gold, C.goldS));
 
 const only = process.argv.slice(2);
 const dir = path.resolve(__dirname, '..', 'art', 'svg');
