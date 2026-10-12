@@ -221,7 +221,10 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     sprite(dogSprite(dog), p.x - 30 - i * 6, y, { scale: 0.92, syScale: squash, sxScale: 1 / Math.sqrt(squash) });
   });
 
-  drawHero(world, sprite);
+  drawHero(world, sprite, (name, cx, cy, w, h, rot, alpha) => {
+    const f = atlas.frames[name];
+    if (f) out.push(f[0], f[1], f[2], f[3], f[4], sx(cx), sy(cy), w * k, h * k, rot, alpha, 0);
+  });
 
   // The boss.
   const b = world.boss;
@@ -259,7 +262,41 @@ type SpriteFn = (
   opts?: { flip?: boolean; rot?: number; alpha?: number; scale?: number; sxScale?: number; syScale?: number },
 ) => void;
 
-function drawHero(world: World, sprite: SpriteFn) {
+/** Draws a sprite centred at world (cx, cy) with an exact world size. */
+type PartFn = (name: SpriteName, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => void;
+
+// The Dog Better puppet: pieces placed in the walking sticker's 802 x 714 px canvas (pupFrames.json).
+const PUP_CANVAS = { w: 802, h: 714 };
+const PUP_S = SPRITES.pup_base.w / PUP_CANVAS.w;
+const LEGS_BOX = [6, 420, 728, 714];
+const TAIL_BOX = [72, 229, 292, 392];
+const LEG_FRAMES = 25;
+const TAIL_FRAMES = 11;
+
+function drawPuppet(
+  part: PartFn,
+  x: number,
+  y: number,
+  o: { rot: number; alpha: number; sxScale: number; syScale: number; legs: SpriteName; tail: number },
+) {
+  const H = SPRITES.pup_base.h * o.syScale;
+  const cos = Math.cos(o.rot);
+  const sin = Math.sin(o.rot);
+  // Place a piece by its box in canvas px: squash about the paws, then turn about the pup's middle.
+  const place = (name: SpriteName, box: number[]) => {
+    const bx = ((box[0] + box[2]) / 2 - PUP_CANVAS.w / 2) * PUP_S * o.sxScale;
+    const by = (PUP_CANVAS.h - (box[1] + box[3]) / 2) * PUP_S * o.syScale - H / 2;
+    const w = (box[2] - box[0]) * PUP_S * o.sxScale;
+    const h = (box[3] - box[1]) * PUP_S * o.syScale;
+    // Screen rotation is clockwise for positive angles; in world space (y up) that is the inverse turn.
+    part(name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, o.alpha);
+  };
+  place('pup_base', [0, 0, PUP_CANVAS.w, PUP_CANVAS.h]);
+  place(`pup_tail_${o.tail}` as SpriteName, TAIL_BOX);
+  place(o.legs, LEGS_BOX);
+}
+
+function drawHero(world: World, sprite: SpriteFn, part: PartFn) {
   const h = world.hero;
   if (world.phase === 'respawn' && world.phaseT < 0.9) return;
   const t = world.t;
@@ -278,8 +315,8 @@ function drawHero(world: World, sprite: SpriteFn) {
     case 'run': {
       // A bouncy gallop: two bounces per stride with a little rock.
       const phase = h.stride * Math.PI * 2;
-      lift = Math.abs(Math.sin(phase)) * 5;
-      rot = Math.sin(phase) * 0.06;
+      lift = Math.abs(Math.sin(phase)) * 2.5;
+      rot = Math.sin(phase) * 0.03;
       break;
     }
     case 'jump':
@@ -305,5 +342,15 @@ function drawHero(world: World, sprite: SpriteFn) {
       lift = Math.abs(Math.sin(t * 6)) * 14;
       break;
   }
-  sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale });
+  if (name !== 'pup_walk') {
+    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale });
+    return;
+  }
+  // Running and airborne: the real Dog Better puppet, legs driven by distance run, tail always wagging.
+  let legs: SpriteName = `pup_leg_${Math.floor(h.stride * LEG_FRAMES) % LEG_FRAMES}` as SpriteName;
+  if (!h.onGround) legs = h.vy > 0 ? 'pup_leg_6' : 'pup_leg_18';
+  if (h.blocked) legs = 'pup_leg_rest';
+  // The tail sheet is one full wag, so it loops (2.4 wags a second while trotting, as in Dog Better).
+  const tail = Math.floor(t * 2.4 * (TAIL_FRAMES - 1)) % (TAIL_FRAMES - 1);
+  drawPuppet(part, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale, legs, tail });
 }

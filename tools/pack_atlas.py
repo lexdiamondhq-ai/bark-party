@@ -37,6 +37,32 @@ for breed in ['beagle', 'collie', 'dachshund', 'frenchie', 'golden', 'husky', 'l
     DOGBETTER[f'dog_{breed}'] = f'dog_{breed}.webp'
 
 
+PUP_DIR = os.path.join(ROOT, 'art/dogbetter-pup')
+
+
+def pup_parts():
+    """Cuts the Dog Better puppet sheets (art/dogbetter-pup) into named full-res frames."""
+    if not os.path.exists(os.path.join(PUP_DIR, 'pupFrames.json')):
+        return {}
+    meta = json.load(open(os.path.join(PUP_DIR, 'pupFrames.json')))
+    parts = {'pup_base': Image.open(os.path.join(PUP_DIR, 'base.png')).convert('RGBA')}
+
+    def cut(sheet, info, i):
+        cols = info['cols']
+        fw, fh = info['frame']
+        c, r = i % cols, i // cols
+        return sheet.crop((c * fw, r * fh, c * fw + fw, r * fh + fh))
+
+    legs = Image.open(os.path.join(PUP_DIR, 'legs.png')).convert('RGBA')
+    for i in range(25):
+        parts[f'pup_leg_{i}'] = cut(legs, meta['legsSheet'], i * 2)
+    parts['pup_leg_rest'] = cut(legs, meta['legsSheet'], meta['rest'])
+    tail = Image.open(os.path.join(PUP_DIR, 'tail.png')).convert('RGBA')
+    for i in range(meta['tail']):
+        parts[f'pup_tail_{i}'] = cut(tail, meta['tailSheet'], i)
+    return parts
+
+
 def sprite_sizes():
     """Reads world sizes from src/game/sprites.ts so the two never drift apart."""
     src = open(os.path.join(ROOT, 'src/game/sprites.ts')).read()
@@ -57,8 +83,13 @@ def trim(im):
 def load_all(sizes):
     images = {}
     missing = []
+    parts = pup_parts()
     for name, (w, h) in sizes.items():
         target = (max(1, round(w * PX)), max(1, round(h * PX)))
+        if name in parts:
+            # Puppet pieces keep their exact boxes (no trim) so they line up on the body.
+            images[name] = parts[name].resize(target, Image.LANCZOS)
+            continue
         if name in DOGBETTER:
             path = os.path.join(DB_DIR, DOGBETTER[name])
             im = trim(Image.open(path).convert('RGBA'))

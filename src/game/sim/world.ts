@@ -344,7 +344,7 @@ function stepHero(world: World, input: Input, dt: number) {
   else if (!h.onGround) h.pose = h.vy > 0 ? 'jump' : 'fall';
   else h.pose = 'run';
 
-  if (h.onGround && h.vx > 0) h.stride = (h.stride + (h.vx * dt) / 120) % 1;
+  if (h.onGround && h.vx > 0) h.stride = (h.stride + (h.vx * dt) / 90) % 1;
 }
 
 function bark(world: World) {
