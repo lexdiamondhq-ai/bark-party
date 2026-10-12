@@ -40,6 +40,15 @@ export const DOGS: Record<DogId, number> = {
   shepherd: require('../../assets/game/dogbetter/dog_shepherd.webp'),
 };
 
+/** HUD and menu pictures drawn from the same sprite art as the game. */
+export const HUD = {
+  heartFull: require('../../assets/game/sprites/heart_full.png'),
+  heartEmpty: require('../../assets/game/sprites/heart_empty.png'),
+  bone: require('../../assets/game/sprites/bone_icon.png'),
+  cake: require('../../assets/game/sprites/cake.png'),
+  wagon: require('../../assets/game/sprites/wagon.png'),
+};
+
 export const PUP = {
   walk: require('../../assets/game/dogbetter/mascot-walking.webp'),
   bark: require('../../assets/game/dogbetter/mascot-bark.webp'),

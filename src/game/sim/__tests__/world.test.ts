@@ -96,7 +96,8 @@ describe('hero movement', () => {
 
   it('falling in a pit costs a heart and respawns at the checkpoint', () => {
     const w = createWorld(flat({ floorSegments: [[-600, 500], [800, 5000]], checkpoints: [100] }), 640);
-    run(w, 3);
+    // Edge hop, fall, hit-stop and the respawn pause: back on the floor a little after three seconds.
+    run(w, 3.5);
     const events = drainEvents(w);
     expect(events.some((e) => e.type === 'hurt')).toBe(true);
     expect(w.hero.hearts).toBe(2);

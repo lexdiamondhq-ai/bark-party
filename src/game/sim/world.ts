@@ -2,6 +2,7 @@ import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS
 import type { LevelDef } from '../level/types';
 import { PUP_LEG_FRAMES, SPRITES, type SpriteName } from '../sprites';
 import { seededRng } from '../../engine/rng';
+import { HITSTOP, addShake, cameraLead, cameraLift, decayShake, landImpact, type ShakeKind } from './feel';
 import type { Acorn, Boss, Enemy, GameEvent, Hero, Input, Particle, Platform, World } from './types';
 
 /** The legs settle onto four paws over this long when the dog is stopped by a solid piece. */
@@ -29,10 +30,15 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
     t: 0,
     phase: 'run',
     phaseT: 0,
-    hero: makeHero(0),
-    prev: { x: 0, y: 0, camX: 0, t: 0, stride: 0 },
+    hero: makeHero(0, level.runSpeed),
+    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0 },
     camX: 0,
-    shake: 0,
+    camY: 0,
+    camLead: 0,
+    shake: { x: 0, y: 0 },
+    shakeKind: null,
+    hitstop: 0,
+    reduceMotion: false,
     platforms,
     floor: level.floorSegments.map(([a, b]) => [a, b] as [number, number]),
     enemies,
@@ -93,6 +99,7 @@ export function snapPrev(world: World) {
   p.x = world.hero.x;
   p.y = world.hero.y;
   p.camX = world.camX;
+  p.camY = world.camY;
   p.t = world.t;
   p.stride = world.hero.stride;
   for (const e of world.enemies) {
@@ -113,11 +120,11 @@ export function snapPrev(world: World) {
   }
 }
 
-function makeHero(x: number): Hero {
+function makeHero(x: number, vx: number): Hero {
   return {
     x,
     y: 0,
-    vx: 0,
+    vx,
     vy: 0,
     onGround: true,
     airTime: 0,
@@ -127,6 +134,9 @@ function makeHero(x: number): Hero {
     sliding: 0,
     barking: 0,
     barkCooldown: 0,
+    barkBuffer: 0,
+    boost: 0,
+    landImpact: 0,
     invuln: 0,
     hearts: MAX_HEARTS,
     sinceLand: 1,
@@ -163,6 +173,7 @@ function makeEnemy(e: LevelDef['enemies'][number], id: number): Enemy {
     x1: 0,
     speed: 0,
     facing: -1,
+    pop: 0,
   };
   switch (e.type) {
     case 'runner':
@@ -179,7 +190,19 @@ function makeEnemy(e: LevelDef['enemies'][number], id: number): Enemy {
 }
 
 export function cameraTarget(world: World): number {
-  return world.hero.x - world.viewW * HERO_SCREEN_X;
+  return world.hero.x - world.viewW * HERO_SCREEN_X + world.camLead;
+}
+
+/** A hit: the camera shakes its own way for this kind and the world freezes for a few frames. */
+function impact(world: World, kind: ShakeKind, scale = 1) {
+  addShake(world.shake, kind, scale);
+  world.shakeKind = kind;
+  if (!world.reduceMotion) world.hitstop = Math.max(world.hitstop, (HITSTOP[kind] ?? 0) * scale);
+}
+
+/** iOS Reduce Motion, from the host: hits no longer freeze the world and confetti thins out. */
+export function setReduceMotion(world: World, on: boolean) {
+  world.reduceMotion = on;
 }
 
 /* ------------------------------------------------------------------ */
@@ -210,9 +233,16 @@ function onFloor(world: World, x: number, halfW: number): boolean {
 export function stepWorld(world: World, input: Input, dtRaw: number): void {
   const dt = Math.min(dtRaw, 1 / 30);
   snapPrev(world);
+  if (world.hitstop > 0) {
+    // Frozen for a few frames after a hit. Presses made now are kept for when it ends.
+    world.hitstop -= dt;
+    if (input.jumpPressed) world.hero.jumpBuffer = PHYS.jumpBuffer;
+    if (input.barkPressed) world.hero.barkBuffer = PHYS.barkBuffer;
+    return;
+  }
   world.t += dt;
   world.phaseT += dt;
-  world.shake = Math.max(0, world.shake - dt * 3);
+  decayShake(world.shake, world.shakeKind, dt);
 
   if (world.phase === 'respawn') {
     if (world.phaseT > 0.9) respawn(world);
@@ -239,7 +269,9 @@ export function stepWorld(world: World, input: Input, dtRaw: number): void {
   world.trail.unshift({ x: world.hero.x, y: world.hero.y });
   if (world.trail.length > TRAIL_MAX) world.trail.length = TRAIL_MAX;
 
-  // Camera eases toward the dog; it never lags far enough to lose it.
+  // Camera eases toward the dog; it never lags far enough to lose it. It leads a fast dog and lifts for a high one.
+  world.camLead += (cameraLead(world.hero.vx, world.level.runSpeed) - world.camLead) * Math.min(1, dt * 4);
+  world.camY += (cameraLift(world.hero.y) - world.camY) * Math.min(1, dt * 5);
   const target = cameraTarget(world);
   world.camX += (target - world.camX) * Math.min(1, dt * 10);
 
@@ -276,16 +308,32 @@ function stepHero(world: World, input: Input, dt: number) {
   const won = world.phase === 'won';
   h.invuln = Math.max(0, h.invuln - dt);
   h.barkCooldown = Math.max(0, h.barkCooldown - dt);
+  h.barkBuffer = Math.max(0, h.barkBuffer - dt);
   h.barking = Math.max(0, h.barking - dt);
   if (h.barking > 0) barkWave(world);
+  const wasSliding = h.sliding > 0;
   h.sliding = Math.max(0, h.sliding - dt);
+  h.boost = Math.max(0, h.boost - dt);
   h.sinceLand += dt;
   h.jumpBuffer = Math.max(0, h.jumpBuffer - dt);
   h.slideBuffer = Math.max(0, h.slideBuffer - dt);
 
+  // Zoomies: coming out of a slide on the ground gives a burst of speed, so the slide is a move, not just a dodge.
+  if (wasSliding && h.sliding === 0 && h.onGround && !won) {
+    h.boost = PHYS.boostTime;
+    sfx(world, 'whoosh');
+    haptic(world, 'light');
+    impact(world, 'zoomies');
+    dust(world, h.x - 20, h.y, 3);
+  }
+
   if (!won) {
     if (input.jumpPressed) h.jumpBuffer = PHYS.jumpBuffer;
-    if (input.barkPressed && h.barkCooldown <= 0) bark(world);
+    if (input.barkPressed) h.barkBuffer = PHYS.barkBuffer;
+    if (h.barkBuffer > 0 && h.barkCooldown <= 0) {
+      h.barkBuffer = 0;
+      bark(world);
+    }
     if (input.slidePressed) {
       if (h.onGround) {
         h.sliding = PHYS.slideTime;
@@ -299,9 +347,12 @@ function stepHero(world: World, input: Input, dt: number) {
     }
   }
 
-  // Running speed: auto-run, stopping only when blocked or after the win.
-  const speed = won ? Math.max(0, h.vx - dt * 500) : world.level.runSpeed;
-  h.vx = speed;
+  // Running speed: auto-run (faster during zoomies), stopping only when blocked or after the win.
+  if (won) h.vx = Math.max(0, h.vx - dt * 500);
+  else {
+    const speed = world.level.runSpeed * (h.boost > 0 ? PHYS.boostSpeed : 1);
+    h.vx += (speed - h.vx) * Math.min(1, dt * 10);
+  }
 
   // Jumping: ground jump (with coyote time) or one air jump.
   const canGroundJump = h.onGround || h.airTime < PHYS.coyoteTime;
@@ -352,10 +403,13 @@ function stepHero(world: World, input: Input, dt: number) {
   if (ground !== null && h.vy <= 0 && ny <= ground && prevY >= ground - 1) {
     ny = ground;
     if (!wasOnGround) {
+      // The harder the landing, the deeper the squash, the bigger the dust and the more the camera thumps.
       h.sinceLand = 0;
+      h.landImpact = landImpact(h.vy);
       if (h.vy < -500) {
         sfx(world, 'land');
-        dust(world, h.x, ground, 4);
+        dust(world, h.x, ground, 2 + Math.round(h.landImpact * 4));
+        impact(world, 'land_hard', 0.4 + h.landImpact);
       }
     }
     h.vy = 0;
@@ -370,6 +424,12 @@ function stepHero(world: World, input: Input, dt: number) {
       dust(world, h.x - 10, ground, 2);
     }
   } else {
+    if (wasOnGround && h.vy <= 0 && !won) {
+      // Ran off an edge: a tiny hop, so the drop reads as a bound and not a slip.
+      h.vy = PHYS.ledgeHop;
+      ny = prevY + h.vy * dt;
+      dust(world, h.x - 8, prevY, 1);
+    }
     h.onGround = false;
     h.airTime += dt;
   }
@@ -399,19 +459,21 @@ function bark(world: World) {
   h.barkCooldown = PHYS.barkCooldown;
   sfx(world, world.phase === 'boss' ? 'bark_big' : 'bark');
   haptic(world, 'medium');
-  world.shake = Math.max(world.shake, 0.25);
+  impact(world, 'bark');
+  // The "WOOF!" bursts out of the muzzle and grows as it flies.
   world.particles.push({
     sprite: 'bark_burst',
-    x: h.x + 70,
-    y: h.y + 40,
-    vx: world.level.runSpeed,
-    vy: 30,
+    x: h.x + 56,
+    y: h.y + 36,
+    vx: world.level.runSpeed + 60,
+    vy: 40,
     gravity: 0,
     life: 0.45,
     maxLife: 0.45,
     rot: -0.15,
     vr: 0.3,
-    scale: 1,
+    scale: 0.45,
+    scale1: 1.15,
   });
 
   barkWave(world);
@@ -432,9 +494,11 @@ function barkWave(world: World) {
       e.vx = 260;
       e.vy = 300;
       e.facing = 1;
+      e.pop = 0.18;
       sfx(world, 'cat_hiss');
     } else {
       stun(world, e, 380, 420);
+      impact(world, 'bark_hit');
     }
   }
   for (const a of world.acorns) {
@@ -462,6 +526,7 @@ function stun(world: World, e: Enemy, vx: number, vy: number) {
   e.vx = vx;
   e.vy = vy;
   e.t = 0;
+  e.pop = 0.18;
   sfx(world, 'squirrel_stun');
   for (let i = 0; i < 5; i++) spark(world, e.x, e.y + e.h, 'star');
 }
@@ -477,7 +542,8 @@ function loseHeart(world: World, fell: boolean) {
   h.hearts -= 1;
   world.hurtCount += 1;
   h.invuln = PHYS.hurtInvuln;
-  world.shake = 0.6;
+  h.boost = 0;
+  impact(world, 'hurt');
   sfx(world, 'hurt');
   haptic(world, 'error');
   emit(world, { type: 'hurt', hearts: h.hearts });
@@ -500,7 +566,7 @@ function loseHeart(world: World, fell: boolean) {
 function respawn(world: World) {
   const h = world.hero;
   const hearts = h.hearts;
-  Object.assign(h, makeHero(world.respawnX));
+  Object.assign(h, makeHero(world.respawnX, world.level.runSpeed));
   h.hearts = hearts;
   h.invuln = 1.2;
   h.y = groundBelow(world, h.x, 10, 999) ?? 0;
@@ -508,6 +574,8 @@ function respawn(world: World) {
   world.phaseT = 0;
   world.acorns = [];
   world.trail = [];
+  world.camLead = 0;
+  world.camY = 0;
   world.camX = cameraTarget(world);
   snapPrev(world);
 }
@@ -535,6 +603,7 @@ function stepEnemies(world: World, dt: number) {
   const heroH = h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h;
   for (const e of world.enemies) {
     e.t += dt;
+    e.pop = Math.max(0, e.pop - dt);
     if (e.state === 'stunned' || e.state === 'fled') {
       e.x += e.vx * dt;
       e.y += e.vy * dt;
@@ -600,9 +669,11 @@ function stepEnemies(world: World, dt: number) {
         e.state = 'fled';
         e.vx = 240;
         e.vy = 260;
+        e.pop = 0.18;
         h.vy = PHYS.stompBounce;
         h.jumpsUsed = 1;
         sfx(world, 'cat_hiss');
+        impact(world, 'stomp');
       } else hurt(world);
       continue;
     }
@@ -611,8 +682,10 @@ function stepEnemies(world: World, dt: number) {
         // Bounce off the vacuum like a trampoline.
         h.vy = PHYS.stompBounce * 1.25;
         h.jumpsUsed = 1;
+        e.pop = 0.18;
         sfx(world, 'jump');
         haptic(world, 'light');
+        impact(world, 'stomp', 0.6);
       } else hurt(world);
       continue;
     }
@@ -622,6 +695,7 @@ function stepEnemies(world: World, dt: number) {
         e.state = 'stunned';
         e.vx = 200;
         e.vy = 300;
+        e.pop = 0.18;
       }
       continue;
     }
@@ -631,8 +705,10 @@ function stepEnemies(world: World, dt: number) {
       h.vy = PHYS.stompBounce;
       h.jumpsUsed = 1;
       haptic(world, 'medium');
+      impact(world, 'stomp');
     } else if (h.sliding > 0) {
       stun(world, e, 420, 380);
+      impact(world, 'bark_hit');
     } else hurt(world);
   }
   // Drop enemies that are long gone.
@@ -799,7 +875,7 @@ function hitBoss(world: World) {
   const b = world.boss!;
   b.hits += 1;
   b.hurtT = 0.6;
-  world.shake = 0.8;
+  impact(world, 'boss_hit');
   sfx(world, 'boss_hit');
   haptic(world, 'heavy');
   for (let i = 0; i < 10; i++) spark(world, b.x, b.y + 80, 'star');
@@ -865,6 +941,7 @@ function openCages(world: World) {
     if (Math.abs(c.x + 42 - h.x) < 50 && h.y < c.y + 80 && h.y + HERO_BOX.h > c.y) {
       c.open = true;
       world.boarding.push({ dog: c.dog, x: c.x + 42, y: c.y + 6, t: 0 });
+      impact(world, 'rescue');
       sfx(world, 'cage_open');
       sfx(world, 'rescue');
       haptic(world, 'success');
@@ -947,6 +1024,7 @@ function spark(world: World, x: number, y: number, sprite: SpriteName) {
 }
 
 function confetti(world: World, x: number, y: number) {
+  if (world.reduceMotion && world.rng() > 1 / 3) return;
   world.particles.push({
     sprite: 'star',
     color: CONFETTI[Math.floor(world.rng() * CONFETTI.length)],

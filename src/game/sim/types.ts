@@ -1,6 +1,7 @@
 import type { CoachId, LevelDef } from '../level/types';
 import type { Rng } from '../../engine/rng';
 import type { DogId, SpriteName } from '../sprites';
+import type { ShakeKind, ShakeState } from './feel';
 
 export interface Input {
   /** True on the frame the player starts a jump (tap). */
@@ -33,6 +34,12 @@ export interface Hero {
   sliding: number;
   barking: number;
   barkCooldown: number;
+  /** A bark pressed a moment early waits here until the cooldown ends. */
+  barkBuffer: number;
+  /** Zoomies time left after a slide. */
+  boost: number;
+  /** How hard the last landing was, 0..1, for the squash. */
+  landImpact: number;
   invuln: number;
   hearts: number;
   /** Seconds since the last landing, for the squash on touchdown. */
@@ -50,6 +57,7 @@ export interface RenderPrev {
   x: number;
   y: number;
   camX: number;
+  camY: number;
   t: number;
   stride: number;
 }
@@ -83,6 +91,8 @@ export interface Enemy extends Prev {
   x1: number;
   speed: number;
   facing: 1 | -1;
+  /** Seconds left of the pop after being hit, for the squash-and-stretch. */
+  pop: number;
 }
 
 export interface Acorn extends Prev {
@@ -139,6 +149,8 @@ export interface Particle extends Prev {
   rot: number;
   vr: number;
   scale: number;
+  /** Scale at the end of the particle's life, when it grows or shrinks (the bark burst). */
+  scale1?: number;
   /** Frames to step through over the particle's life (dust puffs). */
   frames?: SpriteName[];
   /** Confetti: a flat colored rectangle instead of a sprite. */
@@ -189,7 +201,15 @@ export interface World {
   hero: Hero;
   prev: RenderPrev;
   camX: number;
-  shake: number;
+  /** The camera lifts when the dog is high up, and leads it when it runs fast. */
+  camY: number;
+  camLead: number;
+  shake: ShakeState;
+  shakeKind: ShakeKind | null;
+  /** Seconds the world stays frozen so a hit lands. */
+  hitstop: number;
+  /** iOS Reduce Motion: no freezes, a third of the confetti (the renderer drops the shake). */
+  reduceMotion: boolean;
   platforms: Platform[];
   floor: [number, number][];
   enemies: Enemy[];

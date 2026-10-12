@@ -26,7 +26,7 @@ import Animated, {
 
 import { colors, fonts, springs } from '../theme/tokens';
 import { initAudio, pauseMusic, playMusic, playSfx, preloadSfx, isMuted, setMuted } from './audio';
-import { COACH_CHEER, DOGS, ROOMS, ROOM_SIZE } from './art';
+import { COACH_CHEER, DOGS, HUD, ROOMS, ROOM_SIZE } from './art';
 import { MAX_HEARTS, STEP, VIEW_H } from './constants';
 import type { CoachId, LevelDef } from './level/types';
 import { GameCanvas } from './render/GameCanvas';
@@ -34,7 +34,7 @@ import { ATLAS_PAGES } from './render/atlasImages';
 import atlas from './render/atlas.json';
 import { buildFrame, OpList, type AtlasData, type PupProbe } from './render/buildFrame';
 import { NO_INPUT, type GameEvent, type Input } from './sim/types';
-import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, snapPrev, stepWorld, type LevelResult } from './sim/world';
+import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, setReduceMotion, snapPrev, stepWorld, type LevelResult } from './sim/world';
 import type { DogId } from './sprites';
 import { BOSS_NAME, DOG_NAMES } from './story';
 
@@ -127,13 +127,16 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
-      .then((v) => (reduceMotion.current = v))
+      .then((v) => {
+        reduceMotion.current = v;
+        setReduceMotion(world, v);
+      })
       .catch(() => {});
     initAudio();
     preloadSfx();
     playMusic(level.music);
     return () => playMusic('none');
-  }, [level.music]);
+  }, [level.music, world]);
 
   const calloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showCallout = useCallback((c: Omit<Callout, 'key'>, ms = 2800) => {
@@ -363,13 +366,11 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
       <View pointerEvents="box-none" style={[styles.hud, { left: pad, top: 12 }]}>
         <View style={styles.hudRow} pointerEvents="none">
           {Array.from({ length: MAX_HEARTS }, (_, i) => (
-            <Text key={i} style={[styles.heart, { opacity: i < hearts ? 1 : 0.25 }]}>
-              ♥
-            </Text>
+            <Heart key={i} full={i < hearts} />
           ))}
         </View>
         <Animated.View style={[styles.chip, boneStyle]} pointerEvents="none">
-          <Text style={styles.boneIcon}>🦴</Text>
+          <Image source={HUD.bone} style={styles.boneIcon} />
           <Text style={styles.chipText}>{bones}</Text>
         </Animated.View>
         <View style={styles.hudRow} pointerEvents="none">
@@ -381,11 +382,14 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
 
       {boss && (
         <Animated.View entering={FadeIn} pointerEvents="none" style={[styles.bossBar, { bottom: 14 }]}>
-          <Text style={styles.bossName}>{BOSS_NAME}</Text>
-          <View style={styles.hudRow}>
-            {Array.from({ length: boss.needed }, (_, i) => (
-              <View key={i} style={[styles.pip, i < boss.needed - boss.hits ? styles.pipFull : null]} />
-            ))}
+          <Image source={HUD.cake} style={styles.bossCake} />
+          <View>
+            <Text style={styles.bossName}>{BOSS_NAME}</Text>
+            <View style={styles.hudRow}>
+              {Array.from({ length: boss.needed }, (_, i) => (
+                <View key={i} style={[styles.pip, i < boss.needed - boss.hits ? styles.pipFull : null]} />
+              ))}
+            </View>
           </View>
         </Animated.View>
       )}
@@ -397,7 +401,10 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
         style={[styles.pause, { right: pad, top: 12 }]}
         hitSlop={12}
       >
-        <Text style={styles.pauseText}>II</Text>
+        <View style={styles.pauseBars}>
+          <View style={styles.pauseBar} />
+          <View style={styles.pauseBar} />
+        </View>
       </Pressable>
 
       {/* Bark button */}
@@ -476,17 +483,23 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
   );
 }
 
+/** One heart of the HUD: the real sticker, which pops when it is lost. */
+function Heart({ full }: { full: boolean }) {
+  const scale = useSharedValue(1);
+  const wasFull = useRef(full);
+  useEffect(() => {
+    if (wasFull.current && !full) scale.set(withSequence(withTiming(1.5, { duration: 80 }), withSpring(1, springs.bouncy)));
+    wasFull.current = full;
+  }, [full, scale]);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return <Animated.Image source={full ? HUD.heartFull : HUD.heartEmpty} style={[styles.heart, style]} />;
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.velvetNight, overflow: 'hidden' },
   hud: { position: 'absolute', gap: 6 },
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  heart: {
-    fontSize: 30,
-    color: colors.bubblegum,
-    textShadowColor: colors.cocoa,
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 0,
-  },
+  heart: { width: 34, height: 31, resizeMode: 'contain' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -499,20 +512,22 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     gap: 6,
   },
-  boneIcon: { fontSize: 18 },
+  boneIcon: { width: 28, height: 16, resizeMode: 'contain' },
   chipText: { fontFamily: fonts.display, fontSize: 24, color: colors.cocoa },
   friend: { width: 34, height: 34, resizeMode: 'contain' },
   bossBar: {
     position: 'absolute',
     alignSelf: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(26,15,11,0.55)',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
+    borderRadius: 18,
+    gap: 10,
   },
-  bossName: { fontFamily: fonts.display, fontSize: 24, color: colors.marshmallow },
+  bossCake: { width: 40, height: 37, resizeMode: 'contain' },
+  bossName: { fontFamily: fonts.display, fontSize: 24, color: colors.marshmallow, marginBottom: 2 },
   pip: { width: 26, height: 12, borderRadius: 6, borderWidth: 2, borderColor: colors.marshmallow },
   pipFull: { backgroundColor: colors.tomato },
   pause: {
@@ -526,7 +541,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pauseText: { fontFamily: fonts.bodyHeavy, fontSize: 18, color: colors.marshmallow },
+  pauseBars: { flexDirection: 'row', gap: 5 },
+  pauseBar: { width: 6, height: 20, borderRadius: 3, backgroundColor: colors.marshmallow },
   barkWrap: { position: 'absolute' },
   bark: {
     width: BARK_SIZE,

@@ -95,15 +95,19 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
   const { atlas, k, screenW, screenH } = setup;
   const t = world.t;
   const prev = world.prev;
-  const shake = setup.reduceMotion ? 0 : world.shake;
-  const shakeX = Math.sin(t * 83) * shake * 7;
-  const camY = Math.cos(t * 71) * shake * 5;
+  const shake = setup.reduceMotion ? 0 : 1;
+  const shakeX = Math.sin(t * 83) * world.shake.x * shake * 8;
+  const shakeY = Math.cos(t * 71) * world.shake.y * shake * 6;
+  // The camera's lift is drawn where it was a step ago; the canvas blends it like everything else.
+  const camY = world.camY + shakeY;
   const camX = world.camX + shakeX;
   const camXPrev = prev.camX + shakeX;
+  const camYPrev = prev.camY + shakeY;
 
   const sx = (x: number) => (x - camX) * k;
   const sy = (y: number) => (FLOOR_SCREEN_Y - y + camY) * k;
   const sxPrev = (x: number) => (x - camXPrev) * k;
+  const syPrev = (y: number) => (FLOOR_SCREEN_Y - y + camYPrev) * k;
   const viewL = camX - 120;
   const viewR = camX + screenW / k + 120;
   const visible = (x: number, w = 0) => x + w / 2 > viewL && x - w / 2 < viewR;
@@ -118,10 +122,10 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     const h = size.h * s * (opts.syScale ?? 1);
     const cy = y + h / 2;
     const pcy = (opts.py ?? y) + h / 2;
-    out.push(f[0], f[1], f[2], f[3], f[4], sx(x), sy(cy), (opts.flip ? -w : w) * k, h * k, opts.rot ?? 0, opts.alpha ?? 1, 0, sxPrev(opts.px ?? x), sy(pcy));
+    out.push(f[0], f[1], f[2], f[3], f[4], sx(x), sy(cy), (opts.flip ? -w : w) * k, h * k, opts.rot ?? 0, opts.alpha ?? 1, 0, sxPrev(opts.px ?? x), syPrev(pcy));
   };
   const rect = (x: number, y: number, w: number, h: number, color: number, alpha = 1, rot = 0, px = x, py = y) => {
-    out.push(RECT, 0, 0, 0, 0, sx(x), sy(y), w * k, h * k, rot, alpha, color, sxPrev(px), sy(py));
+    out.push(RECT, 0, 0, 0, 0, sx(x), sy(y), w * k, h * k, rot, alpha, color, sxPrev(px), syPrev(py));
   };
 
   // Background room, slow parallax, tiled.
@@ -163,8 +167,8 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
       const f = atlas.frames.floor_living;
       if (!f) continue;
       const share = w / tile;
-      const cy = sy(-SPRITES.floor_living.h / 2);
-      out.push(f[0], f[1], f[2], f[3] * share, f[4], sx(x + w / 2), cy, w * k, SPRITES.floor_living.h * k, 0, 1, 0, sxPrev(x + w / 2), cy);
+      const cy = -SPRITES.floor_living.h / 2;
+      out.push(f[0], f[1], f[2], f[3] * share, f[4], sx(x + w / 2), sy(cy), w * k, SPRITES.floor_living.h * k, 0, 1, 0, sxPrev(x + w / 2), syPrev(cy));
     }
     // Ink edge on pit lips.
     rect(a + 2, -20, 4, 40, COCOA, 0.8);
@@ -213,7 +217,9 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
   for (const e of world.enemies) {
     if (!visible(e.x, 80)) continue;
     const flip = e.facing < 0;
-    const was = { px: e.px, py: e.py };
+    // A hit pops the enemy: a quick stretch up and back, as the stun or flee starts.
+    const pop = e.pop > 0 ? 1 + 0.26 * Math.sin((Math.PI * e.pop) / 0.18) : 1;
+    const was = { px: e.px, py: e.py, syScale: pop, sxScale: 1 / Math.sqrt(pop) };
     if (e.type === 'runner' || e.type === 'thrower') {
       if (e.state === 'stunned') {
         sprite('squirrel_stunned', e.x, e.y, { rot: e.t * 9, flip, ...was });
@@ -229,7 +235,7 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
       else if (!e.awake) {
         const breathe = 1 + Math.sin(t * 2.4) * 0.03;
         sprite('cat_sleep', e.x, e.y, { flip, syScale: breathe, sxScale: 1 / Math.sqrt(breathe) });
-      } else sprite(`cat_awake_${Math.floor(e.t * 6) % 2}` as SpriteName, e.x, e.y, { flip });
+      } else sprite(`cat_awake_${Math.floor(e.t * 6) % 2}` as SpriteName, e.x, e.y, { flip, ...was });
     } else if (e.type === 'vacuum') {
       sprite(`vacuum_${Math.floor(t * 12) % 2}` as SpriteName, e.x, e.y, { flip: e.facing < 0, ...was });
     } else {
@@ -277,14 +283,27 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
   }
   if (b && b.phase === 'gone') sprite('cake', world.hero.x + BOSS_LEAD - 130, 0, { px: prev.x + BOSS_LEAD - 130 });
 
+  // Zoomies: speed lines streak behind the dog.
+  const hero = world.hero;
+  if (hero.boost > 0) {
+    const strength = Math.min(1, hero.boost / 0.3);
+    const dx = hero.x - prev.x;
+    for (let i = 0; i < 4; i++) {
+      const x = hero.x - 48 - i * 19 - ((t * 700 + i * 37) % 44);
+      const y = hero.y + 10 + i * 11 + Math.sin(t * 9 + i) * 2;
+      rect(x, y, 22 + i * 4, 2.4, 0xfff4e2, 0.55 * strength, 0, x - dx, y);
+    }
+  }
+
   // Particles: dust, sparkles, hearts, confetti and the bark burst.
   for (const p of world.particles) {
     if (!visible(p.x)) continue;
     const fade = Math.min(1, p.life / (p.maxLife * 0.35));
+    const scale = p.scale1 === undefined ? p.scale : p.scale + (p.scale1 - p.scale) * (1 - p.life / p.maxLife);
     if (p.color) {
       rect(p.x, p.y, 7, 4.5, hexToInt(p.color), fade, p.rot, p.px ?? p.x, p.py ?? p.y);
     } else {
-      sprite(p.sprite, p.x, p.y, { rot: p.rot, alpha: fade, scale: p.scale, px: p.px, py: p.py });
+      sprite(p.sprite, p.x, p.y, { rot: p.rot, alpha: fade, scale, px: p.px, py: p.py });
     }
   }
 
@@ -374,10 +393,11 @@ function drawHero(world: World, sprite: SpriteFn, part: PartFn, probe?: PupProbe
   const prev = world.prev;
   const flicker = h.invuln > 0 && Math.floor(h.invuln * 14) % 2 === 0 ? 0.35 : 1;
 
-  // Squash on landing, stretch on take-off. Volume stays put: width = 1 / sqrt(height).
+  // Squash on landing (deeper after a long fall), stretch on take-off. Volume stays put: width = 1 / sqrt(height).
   let syScale = 1;
-  if (h.onGround && h.sinceLand < 0.14) syScale = 1 - 0.22 * (1 - h.sinceLand / 0.14);
+  if (h.onGround && h.sinceLand < 0.14) syScale = 1 - (0.14 + 0.16 * h.landImpact) * (1 - h.sinceLand / 0.14);
   else if (!h.onGround && h.vy > 200) syScale = 1.08;
+  else if (h.boost > 0) syScale = 0.96;
   const sxScale = 1 / Math.sqrt(syScale);
 
   let name: SpriteName = 'pup_walk';

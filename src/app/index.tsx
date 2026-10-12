@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { Image, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
-import { DOGS, PUP, ROOMS } from '../game/art';
+import { DOGS, HUD, PUP, ROOMS } from '../game/art';
 import { initAudio, playMusic, playSfx } from '../game/audio';
 import { colors, fonts } from '../theme/tokens';
 
@@ -25,6 +25,10 @@ export default function Title() {
   const runStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -260 + run.value * (width + 420) }] }));
   const hopStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: -hop.value * 10 }, { rotate: `${(hop.value - 0.5) * 8}deg` }],
+  }));
+  // The wagon rattles along a beat behind the pup's hops.
+  const wagonStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -(1 - hop.value) * 3 }, { rotate: `${(0.5 - hop.value) * 3}deg` }],
   }));
   const logoStyle = useAnimatedStyle(() => ({ transform: [{ rotate: '-6deg' }, { scale: 1 + logo.value * 0.04 }] }));
 
@@ -50,12 +54,12 @@ export default function Title() {
       </View>
 
       <Animated.View style={[styles.parade, runStyle]} pointerEvents="none">
-        <Animated.View style={hopStyle}>
-          <Image source={DOGS.husky} style={styles.dog} />
+        <Animated.View style={[styles.wagon, wagonStyle]}>
+          <Image source={DOGS.husky} style={[styles.rider, { left: 14 }]} />
+          <Image source={DOGS.frenchie} style={[styles.rider, { left: 56 }]} />
+          <Image source={HUD.wagon} style={styles.wagonImg} />
         </Animated.View>
-        <Animated.View style={hopStyle}>
-          <Image source={DOGS.frenchie} style={styles.dog} />
-        </Animated.View>
+        <View style={styles.rope} />
         <Animated.View style={hopStyle}>
           <Image source={PUP.walk} style={styles.pup} />
         </Animated.View>
@@ -83,7 +87,10 @@ const styles = StyleSheet.create({
   glass: { backgroundColor: 'rgba(255,244,226,0.14)', borderColor: 'rgba(255,244,226,0.35)' },
   btnDark: { fontFamily: fonts.bodyHeavy, fontSize: 22, color: colors.cocoa },
   btnLight: { fontFamily: fonts.bodyHeavy, fontSize: 20, color: colors.marshmallow },
-  parade: { position: 'absolute', left: 0, bottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
-  dog: { width: 64, height: 64, resizeMode: 'contain' },
+  parade: { position: 'absolute', left: 0, bottom: 10, flexDirection: 'row', alignItems: 'flex-end' },
+  wagon: { width: 128, height: 78, justifyContent: 'flex-end' },
+  wagonImg: { width: 128, height: 59, resizeMode: 'contain' },
+  rider: { position: 'absolute', bottom: 24, width: 52, height: 52, resizeMode: 'contain' },
+  rope: { width: 44, height: 3, marginBottom: 36, marginLeft: -4, marginRight: -2, backgroundColor: colors.cocoa, borderRadius: 2, transform: [{ rotate: '-8deg' }] },
   pup: { width: 104, height: 92, resizeMode: 'contain' },
 });

@@ -97,6 +97,11 @@ Before any code, render three phone-size images in the chat, each with the real 
 Build only the picked one.
 If Alex later supplies walking art per breed, the Phase 1 puppet pipeline (`gait.ts`, `drawPuppet`) is reused for them, which is why the gait code is written generically.
 
+**Status 2026-10-12: Alex picked B, the party wagon, and confirmed the sentence.**
+Built in `src/game/render/followers.ts` (wagon on the trail, seats, rope, boarding arc) and `world.boarding` in the sim (`BOARD_TIME` 0.55 s from crate to seat).
+The hop and balloon prototypes and the balloon props were removed; the wagon prop lives in `tools/gen_sprites.js` -> `art/svg/wagon.svg` -> atlas.
+Clips were made with `DUMP_CLIP=1 DUMP_FRAMES=... npx jest dumpFrames` and `tools/composite_frames.py out.gif`.
+
 ## Phase 3: game feel and aesthetics on Chapter 1 (no Alex input)
 
 Files: `src/game/sim/world.ts`, `src/game/sim/types.ts`, `src/game/render/buildFrame.ts`, `src/game/GameView.tsx`, `src/game/constants.ts`, `art/svg/*`, `tools/render_sprites.js`.

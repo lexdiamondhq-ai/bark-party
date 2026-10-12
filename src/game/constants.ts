@@ -29,6 +29,13 @@ export const PHYS = {
   stompBounce: 620,
   /** Height above the platform top within which a falling hero still lands on it. */
   landTolerance: 22,
+  /** Zoomies: finishing a slide gives this much extra speed for this long. */
+  boostSpeed: 1.25,
+  boostTime: 0.6,
+  /** A bark pressed this long before the cooldown ends still fires. */
+  barkBuffer: 0.12,
+  /** Running off an edge gives a tiny hop so the drop feels bouncy, not like slipping. */
+  ledgeHop: 110,
 } as const;
 
 /** The hero's collision box, centred on x, standing on y. */
