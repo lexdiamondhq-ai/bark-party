@@ -1,0 +1,38 @@
+{
+ "size": [
+  802,
+  714
+ ],
+ "legsBox": [
+  6,
+  420,
+  728,
+  714
+ ],
+ "tailBox": [
+  72,
+  229,
+  292,
+  392
+ ],
+ "walk": 49,
+ "rest": 49,
+ "settle": 23,
+ "tail": 11,
+ "legsSheet": {
+  "cols": 7,
+  "count": 73,
+  "frame": [
+   722,
+   294
+  ]
+ },
+ "tailSheet": {
+  "cols": 4,
+  "count": 11,
+  "frame": [
+   220,
+   163
+  ]
+ }
+}
