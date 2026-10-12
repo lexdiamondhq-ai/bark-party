@@ -35,3 +35,6 @@ export const PHYS = {
 export const HERO_BOX = { w: 40, h: 54, slideH: 26 } as const;
 
 export const MAX_HEARTS = 3;
+
+/** Seconds a freed pup takes to jump from its crate into the wagon. */
+export const BOARD_TIME = 0.55;

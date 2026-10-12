@@ -170,7 +170,7 @@ export function GameView({ level, onWin, onQuit, startX }: Props) {
             setHearts(Math.max(0, e.hearts));
             break;
           case 'rescue':
-            setFriends([...world.followers]);
+            setFriends((f) => [...f, e.dog]);
             showCallout({ dog: e.dog, text: `${DOG_NAMES[e.dog]} is free! Woof!` }, 2200);
             break;
           case 'checkpoint':

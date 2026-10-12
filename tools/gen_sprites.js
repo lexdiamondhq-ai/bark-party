@@ -883,16 +883,6 @@ function wagon() {
   return g;
 }
 
-// A party balloon on a string, for a pup to float along behind the hero.
-function balloon(col, colS) {
-  let g = '';
-  g += ln('M14 34.4 Q10.6 42 14 49 Q17.4 56 14 62.6', 0.7);
-  g += blob(P('M14 33.2 L11.6 36.4 L16.4 36.4 Z'), col, colS, { O: 1.2, so: 0.5 });
-  g += blob(P('M14 34 C3 33.2 1 19.6 2 14.6 C3.5 6.6 9 4.8 14 4.8 C19 4.8 24.5 6.6 26 14.6 C27 19.6 25 33.2 14 34 Z'), col, colS, { O: 1.5, so: 2, off: [2.2, -1.6] });
-  g += `<path d="M20.6 9.2 Q23.6 11.2 23.6 15" fill="none" stroke="${WH}" stroke-width="1.6" stroke-linecap="round"/>`;
-  return g;
-}
-
 // ---------------------------------------------------------------- registry
 const S = {};
 const add = (name, W, H, O, fn, top) => (S[name] = { W, H, O, fn, top });
@@ -945,9 +935,6 @@ add('heart_full', 24, 22, 1.4, () => blob(P(heartPath(12, 11.6, 9.6)), C.gum, C.
 add('heart_empty', 24, 22, 1.4, () => blob(P(heartPath(12, 11.6, 9.6)), '#E9DAD2', '#D5C2B8', { so: 1.6 }));
 add('bone_icon', 28, 16, 1.4, () => bone(28, 16, false, 1.4));
 add('wagon', 96, 44, 2, () => wagon());
-add('balloon_blue', 28, 64, 1.4, () => balloon(C.sky, C.skyS));
-add('balloon_pink', 28, 64, 1.4, () => balloon(C.gum, C.gumS));
-add('balloon_gold', 28, 64, 1.4, () => balloon(C.gold, C.goldS));
 
 const only = process.argv.slice(2);
 const dir = path.resolve(__dirname, '..', 'art', 'svg');

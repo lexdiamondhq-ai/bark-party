@@ -199,8 +199,11 @@ export interface World {
   checkpoints: { x: number; reached: boolean }[];
   respawnX: number;
   callouts: { x: number; coach: CoachId; text: string; done: boolean }[];
+  /** Pups riding in the wagon. */
   followers: DogId[];
-  /** Recent hero positions, newest first, for followers to trace. */
+  /** Pups just freed, mid-jump from their crate (bottom centre at x, y) into the wagon. */
+  boarding: { dog: DogId; x: number; y: number; t: number }[];
+  /** Recent hero positions, newest first, for the wagon to trace. */
   trail: { x: number; y: number }[];
   particles: Particle[];
   boss: Boss | null;

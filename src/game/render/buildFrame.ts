@@ -5,7 +5,7 @@ import { FLOOR_SCREEN_Y } from '../constants';
 import { SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD } from '../sim/world';
 import type { Hero, World } from '../sim/types';
-import { followerDraws, type FollowerStyle } from './followers';
+import { followerDraws } from './followers';
 import { TUCK_DOWN, TUCK_UP, puppetPose } from './pupPose';
 
 /**
@@ -35,8 +35,6 @@ export interface FrameSetup {
   screenW: number;
   screenH: number;
   reduceMotion?: boolean;
-  /** How the freed pups travel (default 'hop'). */
-  followerStyle?: FollowerStyle;
   /** Development: filled in with the hero frames actually drawn, for the frame-rate probe. */
   probe?: PupProbe;
 }
@@ -245,8 +243,8 @@ export function buildFrame(world: World, setup: FrameSetup, out = new OpList()):
     sprite(a.golden ? 'acorn_golden' : 'acorn', a.x, a.y - 9, { rot: a.spin, scale: a.golden ? 1.4 : 1, px: a.px, py: a.py === undefined ? undefined : a.py - 9 });
   }
 
-  // Rescued friends travel behind the dog.
-  const friends = followerDraws(world, t, setup.followerStyle ?? 'hop');
+  // The wagon with the rescued friends rides behind the dog.
+  const friends = followerDraws(world, t);
   for (const r of friends.ropes) {
     const dx = r.x1 - r.x0;
     const dy = r.y1 - r.y0;

@@ -1,4 +1,4 @@
-import { HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, STRIDE_LEN } from '../constants';
+import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, STRIDE_LEN } from '../constants';
 import type { LevelDef } from '../level/types';
 import { PUP_LEG_FRAMES, SPRITES, type SpriteName } from '../sprites';
 import { seededRng } from '../../engine/rng';
@@ -50,6 +50,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1): World {
     respawnX: 0,
     callouts: level.callouts.map((c) => ({ ...c, done: false })),
     followers: [],
+    boarding: [],
     trail: [],
     particles: [],
     boss: level.boss
@@ -229,6 +230,7 @@ export function stepWorld(world: World, input: Input, dtRaw: number): void {
   stepBoss(world, dt);
   collectPickups(world, dt);
   openCages(world);
+  stepBoarding(world, dt);
   passCheckpoints(world);
   fireCallouts(world);
   stepParticles(world, dt);
@@ -862,7 +864,7 @@ function openCages(world: World) {
     if (c.open) continue;
     if (Math.abs(c.x + 42 - h.x) < 50 && h.y < c.y + 80 && h.y + HERO_BOX.h > c.y) {
       c.open = true;
-      world.followers.push(c.dog);
+      world.boarding.push({ dog: c.dog, x: c.x + 42, y: c.y + 6, t: 0 });
       sfx(world, 'cage_open');
       sfx(world, 'rescue');
       haptic(world, 'success');
@@ -870,6 +872,15 @@ function openCages(world: World) {
       for (let i = 0; i < 24; i++) confetti(world, c.x + 42, c.y + 60);
       for (let i = 0; i < 6; i++) spark(world, c.x + 42, c.y + 50, 'heart');
     }
+  }
+}
+
+/** Freed pups land in the wagon once their jump is over. */
+function stepBoarding(world: World, dt: number) {
+  for (const b of world.boarding) b.t += dt;
+  while (world.boarding.length && world.boarding[0].t >= BOARD_TIME) {
+    world.followers.push(world.boarding.shift()!.dog);
+    sfx(world, 'land');
   }
 }
 
@@ -992,7 +1003,7 @@ export function levelResult(world: World): LevelResult {
     bonesTotal: world.bonesTotal,
     goldBones: world.goldBones,
     goldTotal: world.goldTotal,
-    rescued: world.followers.length,
+    rescued: world.followers.length + world.boarding.length,
     rescueTotal: world.cages.length,
     stars: 1 + (bonesOk ? 1 : 0) + (goldOk ? 1 : 0),
     time: world.t,

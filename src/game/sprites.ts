@@ -94,11 +94,8 @@ export const SPRITES = {
   rug: { w: 240, h: 16 },
   floor_living: { w: 128, h: 40 },
 
-  // Ways the freed pups can travel behind the hero
+  // The wagon the freed pups ride in
   wagon: { w: 96, h: 44 },
-  balloon_blue: { w: 28, h: 64 },
-  balloon_pink: { w: 28, h: 64 },
-  balloon_gold: { w: 28, h: 64 },
 
   // Effects and UI
   dust_0: { w: 24, h: 16 },
