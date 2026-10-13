@@ -1,4 +1,4 @@
-import { buy, canBuy, emptyProgress, isChapterOpen, nextChapter, nextCost, parseProgress, recordRun, runBoosts, type RunOutcome } from '../progress';
+import { buy, buyGear, canBuy, canBuyGear, emptyProgress, hasGear, isChapterOpen, nextChapter, nextCost, parseProgress, recordRun, runBoosts, type RunOutcome } from '../progress';
 
 const run = (over: Partial<RunOutcome> = {}): RunOutcome => ({
   chapterId: 'ch1',
@@ -74,6 +74,20 @@ describe('treats', () => {
   it('turn into run boosts', () => {
     const p = { ...emptyProgress(), upgrades: { heart: 1, magnet: 2, jump: 1 } };
     expect(runBoosts(p)).toEqual({ extraHearts: 1, barkRangeBonus: 0, magnetRange: 120, doubleJumpBonus: 90 });
+  });
+});
+
+describe('party gear', () => {
+  it('is bought once and stays', () => {
+    let p = { ...emptyProgress(), bones: 50 };
+    expect(canBuyGear(p, 'balloons')).toBe(true);
+    expect(canBuyGear(p, 'arch')).toBe(false);
+    p = buyGear(p, 'balloons');
+    expect(p.bones).toBe(30);
+    expect(hasGear(p, 'balloons')).toBe(true);
+    expect(buyGear(p, 'balloons')).toBe(p);
+    expect(parseProgress(JSON.parse(JSON.stringify(p))).gear).toEqual(['balloons']);
+    expect(parseProgress({ gear: ['cake', 'nope', 3] }).gear).toEqual(['cake']);
   });
 });
 

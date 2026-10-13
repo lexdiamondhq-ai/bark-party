@@ -14,7 +14,7 @@ export default function Results() {
   const stars = Number(p.stars ?? 1);
   const level = levelById(p.chapter) ?? LEVELS[0];
   const outro = STORIES[level.id]?.outro;
-  const next = () => (outro ? router.replace({ pathname: '/story', params: { scene: `${level.id}_outro` } }) : router.navigate('/'));
+  const next = () => (outro ? router.replace({ pathname: '/story', params: { scene: `${level.id}_outro` } }) : router.navigate('/party'));
 
   useEffect(() => {
     playMusic('none');

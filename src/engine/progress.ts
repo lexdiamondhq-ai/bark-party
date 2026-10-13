@@ -35,6 +35,22 @@ export const UPGRADES: Upgrade[] = [
   { id: 'jump', name: 'Spring Legs', blurb: 'The double jump goes higher.', costs: [45] },
 ];
 
+export type GearId = 'balloons' | 'presents' | 'arch' | 'cake';
+
+export interface Gear {
+  id: GearId;
+  name: string;
+  cost: number;
+}
+
+/** Party gear bought with bones; once bought it stays in the party room for good. */
+export const GEAR: Gear[] = [
+  { id: 'balloons', name: 'Balloons', cost: 20 },
+  { id: 'presents', name: 'Presents', cost: 35 },
+  { id: 'arch', name: 'Party arch', cost: 60 },
+  { id: 'cake', name: 'Cake stand', cost: 80 },
+];
+
 export interface Progress {
   version: number;
   /** Bones in the jar, spendable. */
@@ -43,6 +59,7 @@ export interface Progress {
   bonesEver: number;
   chapters: Record<string, ChapterRecord>;
   upgrades: Partial<Record<UpgradeId, number>>;
+  gear: GearId[];
 }
 
 export interface RunOutcome {
@@ -60,7 +77,22 @@ export interface RunOutcome {
 }
 
 export function emptyProgress(): Progress {
-  return { version: PROGRESS_VERSION, bones: 0, bonesEver: 0, chapters: {}, upgrades: {} };
+  return { version: PROGRESS_VERSION, bones: 0, bonesEver: 0, chapters: {}, upgrades: {}, gear: [] };
+}
+
+export function hasGear(p: Progress, id: GearId): boolean {
+  return p.gear.includes(id);
+}
+
+export function canBuyGear(p: Progress, id: GearId): boolean {
+  const g = GEAR.find((x) => x.id === id)!;
+  return !hasGear(p, id) && p.bones >= g.cost;
+}
+
+export function buyGear(p: Progress, id: GearId): Progress {
+  if (!canBuyGear(p, id)) return p;
+  const g = GEAR.find((x) => x.id === id)!;
+  return { ...p, bones: p.bones - g.cost, gear: [...p.gear, id] };
 }
 
 function emptyRecord(): ChapterRecord {
@@ -177,5 +209,6 @@ export function parseProgress(raw: unknown): Progress {
     const level = num((r.upgrades as Partial<Record<UpgradeId, number>> | undefined)?.[u.id]);
     if (level > 0) upgrades[u.id] = Math.min(u.costs.length, Math.floor(level));
   }
-  return { version: PROGRESS_VERSION, bones: Math.floor(num(r.bones)), bonesEver: Math.floor(num(r.bonesEver)), chapters, upgrades };
+  const gear = GEAR.map((g) => g.id).filter((id) => Array.isArray(r.gear) && (r.gear as unknown[]).includes(id));
+  return { version: PROGRESS_VERSION, bones: Math.floor(num(r.bones)), bonesEver: Math.floor(num(r.bonesEver)), chapters, upgrades, gear };
 }

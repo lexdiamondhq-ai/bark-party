@@ -52,7 +52,7 @@ export default function Play() {
       }}
       onQuit={(r) => {
         if (r.bones > 0) bank(r, false);
-        router.navigate('/');
+        router.navigate('/party');
       }}
     />
   );
