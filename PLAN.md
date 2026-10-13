@@ -183,3 +183,10 @@ Commits after each phase with one-sentence subjects (for example "Make the pup's
 - Whether the JS `requestAnimationFrame` runs at 120 Hz on the iPhone 16 Pro under RN 0.86 (the plist key is in the template; the probe in Phase 1 step 7 answers this).
 - Whether worklets copy or share a `Float64Array` (double-buffering keeps step 8 safe either way).
 - Real JS tick cost on the iPhone (decides pooling in Phase 3 step 6).
+
+## Motion pass 2 (2026-10-12, after Alex said the motion still did not flow)
+
+- The frame is now built twice per step (now, and one step ago) and the canvas blends every op's position, size, tilt and fade at the display rate (`buildFrame.ts` `View`, `OpList.takePrevFrom`, `GameCanvasImpl`). Camera shake, bobs, spins and the wagon's tilt all glide at 120 Hz.
+- The hero runs with a gallop rig (`pupPose.ts` `gallopBody`, `gallopLegIndex`, `GALLOP` knobs): bound, pitch, stretch and squash, legs sweeping gathered to extended, dust on each contact.
+- The wagon rolls on a slow wheel bounce and a wide-window tilt (`followers.ts`).
+- `tools/composite_frames.py out.mp4 120` renders a 120 fps video with the same half-step blend the phone draws; `DUMP_STEPS=1` dumps one step per frame.
