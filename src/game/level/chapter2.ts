@@ -60,7 +60,7 @@ export const CHAPTER_2: LevelDef = {
   ],
   enemies: [
     { type: 'runner', x: 1300 },
-    { type: 'thrower', x: 1990, y: 70, every: 1.7 },
+    { type: 'thrower', x: 2120, y: 70, every: 1.7 },
     { type: 'runner', x: 2300, speed: 120 },
     { type: 'cat', x: 2755, y: 70 },
     { type: 'runner', x: 3300, speed: 140 },

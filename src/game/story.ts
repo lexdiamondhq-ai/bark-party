@@ -126,7 +126,7 @@ export const CH2_INTRO: StoryPanel[] = [
     speaker: 'Leo',
     text: 'The cake is back, but the kitchen is a mess. Where did the party snacks go?',
     left: { kind: 'coach', id: 'leo' },
-    right: { kind: 'dog', id: 'golden' },
+    right: { kind: 'pup', pose: 'sit' },
   },
   {
     room: 'room_kitchen',

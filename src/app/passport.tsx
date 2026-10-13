@@ -196,7 +196,7 @@ export default function Passport() {
         </Animated.View>
       </View>
 
-      <Pressable style={styles.back} onPress={() => router.replace('/')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back to title">
+      <Pressable style={styles.back} onPress={() => router.navigate('/')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back to title">
         <Text style={styles.backText}>Title</Text>
       </Pressable>
     </View>

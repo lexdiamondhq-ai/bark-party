@@ -22,7 +22,8 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.velvetNight }}>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.velvetNight } }} />
+      {/* No swipe-back: a left-edge swipe must never pop a level mid-run or reveal a stale passport. */}
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: colors.velvetNight } }} />
     </GestureHandlerRootView>
   );
 }

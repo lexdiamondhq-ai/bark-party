@@ -70,7 +70,8 @@ export default function Story() {
 
   const finish = () => {
     playSfx('whoosh');
-    router.replace(def.next);
+    if (def.next.pathname === '/passport') router.navigate('/passport');
+    else router.replace(def.next);
   };
 
   const advance = () => {
