@@ -485,7 +485,7 @@ function drawHero(world: World, v: View, sprite: SpriteFn, part: PartFn, probe?:
   const layers = puppetLayers(h, h.stride, t, probe);
   if (body) {
     // The legs hang a touch below the body at the top of the bound and gather under it on contact.
-    const trail = -Math.max(0, -Math.cos(2 * Math.PI * body.phase)) * 1.6;
+    const trail = -Math.max(0, -Math.cos(2 * Math.PI * body.phase)) * 0.9;
     for (const l of layers) if (l.box === LEGS_BOX) l.lift = trail;
   }
   drawPuppet(part, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale }, layers);

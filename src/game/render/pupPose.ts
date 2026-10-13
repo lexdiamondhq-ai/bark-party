@@ -21,7 +21,7 @@ export const TUCK_DOWN = 36;
 /** Seconds to fade from the stride to the tuck when leaving the ground, and back when landing. */
 export const TUCK_BLEND = 0.08;
 /** Tail wags per second while running: faster than Dog Better's trot, it is a gallop. */
-export const WAG_HZ = 3.4;
+export const WAG_HZ = 2.8;
 
 /**
  * The gallop sweeps the leg strip between gathered and extended instead of walking through
@@ -30,13 +30,13 @@ export const WAG_HZ = 3.4;
 export const GALLOP = {
   /** Centre frame and how far the sweep goes either side of it. */
   legCentre: 24,
-  legSweep: 11,
-  /** Height of the bound, in world units, and the body's pitch (nose up is negative). */
-  lift: 7,
-  pitch: 0.11,
+  legSweep: 8,
+  /** Height of the bound, in world units, and the body's pitch (nose up is negative). Kept calm: a steady lope, not a pogo. */
+  lift: 3.5,
+  pitch: 0.055,
   /** Stretch in the air, squash on contact. */
-  stretch: 0.06,
-  squash: 0.07,
+  stretch: 0.03,
+  squash: 0.04,
 } as const;
 
 export interface PupPose {
