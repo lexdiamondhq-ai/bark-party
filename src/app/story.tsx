@@ -139,11 +139,13 @@ function Typewriter({ text, onDone, skipRef }: { text: string; onDone: () => voi
 }
 
 function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'; dark?: boolean }) {
-  const bob = useSharedValue(0);
+  // Living things breathe: a slow, barely visible rise of the chest from the feet up. Props hold still.
+  const alive = actor.kind === 'coach' || actor.kind === 'dog' || actor.kind === 'pup' || actor.kind === 'boss' || actor.kind === 'gang';
+  const breath = useSharedValue(0);
   useEffect(() => {
-    bob.value = withRepeat(withSequence(withTiming(-6, { duration: 420 }), withTiming(0, { duration: 420 })), -1, true);
-  }, [bob]);
-  const bobStyle = useAnimatedStyle(() => ({ transform: [{ translateY: bob.value }] }));
+    if (alive) breath.set(withRepeat(withSequence(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.sin) }), withTiming(0, { duration: 1400, easing: Easing.inOut(Easing.sin) })), -1, false));
+  }, [alive, breath]);
+  const bobStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: 1 + breath.value * 0.012 }, { scaleX: 1 - breath.value * 0.004 }] }));
 
   let source: number | undefined;
   let size = { width: 220, height: 220 };
@@ -209,7 +211,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.velvetNight },
   stage: { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: '8%', paddingBottom: 96 },
   side: { minWidth: 200, alignItems: 'center', justifyContent: 'flex-end' },
-  actor: { alignItems: 'center', justifyContent: 'flex-end' },
+  actor: { alignItems: 'center', justifyContent: 'flex-end', transformOrigin: 'bottom' },
   caged: { position: 'absolute', bottom: 24, width: 130, height: 130 },
   box: {
     position: 'absolute',
