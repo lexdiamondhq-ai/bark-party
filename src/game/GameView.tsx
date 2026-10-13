@@ -517,7 +517,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
               </Pressable>
             )}
             <Pressable style={[styles.btn, styles.btnGlass]} onPress={quit}>
-              <Text style={styles.btnText}>Back to passport</Text>
+              <Text style={styles.btnText}>Quit to title</Text>
             </Pressable>
           </View>
         </Animated.View>

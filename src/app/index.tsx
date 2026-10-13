@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { Image, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
-import { nextChapter } from '../engine/progress';
+import { chapterRecord, nextChapter } from '../engine/progress';
 import { DOGS, HUD, PUP, ROOMS } from '../game/art';
 import { initAudio, playMusic, playSfx } from '../game/audio';
 import { CHAPTER_IDS, LEVELS, levelById } from '../game/level/chapter1';
@@ -39,7 +39,9 @@ export default function Title() {
   const next = levelById(nextChapter(progress, CHAPTER_IDS)) ?? LEVELS[0];
   const start = () => {
     playSfx('bark');
-    router.push('/passport');
+    // The story plays the first time through a chapter; after that the title goes straight to the run.
+    if (chapterRecord(progress, next.id).stars === 0) router.push({ pathname: '/story', params: { scene: `${next.id}_intro` } });
+    else router.push({ pathname: '/play', params: { chapter: next.id } });
   };
 
   return (
