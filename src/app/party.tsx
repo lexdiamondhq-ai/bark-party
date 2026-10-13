@@ -101,7 +101,7 @@ export default function Party() {
               {i === 0 && hasGear(progress, 'arch') && <Animated.Image entering={ZoomIn.springify().damping(10)} source={ART.arch} style={styles.arch} />}
               {i === 0 && hasGear(progress, 'balloons') && (
                 <>
-                  <Animated.Image entering={ZoomIn.springify().damping(10)} source={ART.balloon} style={[styles.balloon, { left: '8%' }]} />
+                  <Animated.Image entering={ZoomIn.springify().damping(10)} source={ART.balloon} style={[styles.balloon, { left: '58%' }]} />
                   <Animated.Image entering={ZoomIn.delay(80).springify().damping(10)} source={ART.balloon} style={[styles.balloon, { right: '8%' }]} />
                 </>
               )}
