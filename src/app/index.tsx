@@ -4,7 +4,8 @@ import { Image, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDim
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
 import { nextChapter } from '../engine/progress';
-import { DOGS, HUD, PUP, ROOMS } from '../game/art';
+import { PupWalker } from '../components/PupWalker';
+import { DOGS, HUD, ROOMS } from '../game/art';
 import { initAudio, playMusic, playSfx } from '../game/audio';
 import { CHAPTER_IDS, LEVELS, levelById } from '../game/level/chapter1';
 import { useProgress } from '../lib/progress';
@@ -65,7 +66,7 @@ export default function Title() {
         </Animated.View>
         <View style={styles.rope} />
         <Animated.View style={hopStyle}>
-          <Image source={PUP.walk} style={styles.pup} />
+          <PupWalker width={104} stridesPerSecond={2.4} />
         </Animated.View>
       </Animated.View>
     </ImageBackground>
@@ -96,5 +97,4 @@ const styles = StyleSheet.create({
   wagonImg: { width: 128, height: 59, resizeMode: 'contain' },
   rider: { position: 'absolute', bottom: 24, width: 52, height: 52, resizeMode: 'contain' },
   rope: { width: 44, height: 3, marginBottom: 36, marginLeft: -4, marginRight: -2, backgroundColor: colors.cocoa, borderRadius: 2, transform: [{ rotate: '-8deg' }] },
-  pup: { width: 104, height: 92, resizeMode: 'contain' },
 });

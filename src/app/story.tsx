@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Image, ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
+  Easing,
   FadeIn,
   FadeInLeft,
   FadeInRight,
@@ -13,6 +14,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { PupWalker } from '../components/PupWalker';
 import { COACH_FULL, DOGS, PUP, ROOMS } from '../game/art';
 import { initAudio, playMusic, playSfx } from '../game/audio';
 import { STORIES, type Actor, type StoryPanel } from '../game/story';
@@ -34,9 +36,10 @@ export default function Story() {
   const { scene = 'ch1_intro' } = useLocalSearchParams<{ scene?: string }>();
   const def = sceneFor(scene);
   const [index, setIndex] = useState(0);
-  // Characters typed so far, tagged with their panel so a new panel starts at zero without a reset in an effect.
-  const [typed, setTyped] = useState({ index: 0, n: 0 });
-  const shown = typed.index === index ? typed.n : 0;
+  // Whether the current line has fully typed, reported by the Typewriter so the screen itself never re-renders per character.
+  const [done, setDone] = useState<{ index: number; done: boolean }>({ index: 0, done: false });
+  const shown = done.index === index && done.done;
+  const skipTo = useRef<(() => void) | null>(null);
   const reduce = useRef(false);
   const panel = def.panels[index];
 
@@ -51,21 +54,12 @@ export default function Story() {
       .catch(() => {});
   }, []);
 
-  // Typewriter.
   useEffect(() => {
     if (panel.slam) {
       playSfx('boss_laugh');
       if (!reduce.current)
         shake.set(withSequence(withTiming(14, { duration: 40 }), withRepeat(withTiming(-14, { duration: 60 }), 5, true), withSpring(0, springs.snap)));
     } else if (panel.dark) playSfx('squirrel_chitter');
-    const start = Date.now();
-    const id = setInterval(() => {
-      const n = Math.min(panel.text.length, Math.floor(((Date.now() - start) / 1000) * CPS));
-      setTyped({ index, n });
-      if (n % 3 === 0) playSfx('blip');
-      if (n >= panel.text.length) clearInterval(id);
-    }, 30);
-    return () => clearInterval(id);
   }, [index, panel, shake]);
 
   const finish = () => {
@@ -75,8 +69,8 @@ export default function Story() {
   };
 
   const advance = () => {
-    if (shown < panel.text.length) {
-      setTyped({ index, n: panel.text.length });
+    if (!shown) {
+      skipTo.current?.();
       return;
     }
     playSfx('button');
@@ -88,11 +82,13 @@ export default function Story() {
   return (
     <View style={styles.root}>
       <Pressable style={StyleSheet.absoluteFill} onPress={advance} accessibilityRole="button" accessibilityLabel="Next" />
-      <Animated.View style={[StyleSheet.absoluteFill, shakeStyle]} pointerEvents="none">
+      {/* The room stays put; only the people and the box shake on the slam, so no edge ever shows. */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <ImageBackground source={ROOMS[panel.room]} style={StyleSheet.absoluteFill} resizeMode="cover" imageStyle={{ width: '100%', height: '100%' }}>
           <View style={[StyleSheet.absoluteFill, { backgroundColor: panel.dark ? 'rgba(10,5,20,0.82)' : 'rgba(20,10,31,0.15)' }]} />
         </ImageBackground>
-
+      </View>
+      <Animated.View style={[StyleSheet.absoluteFill, shakeStyle]} pointerEvents="none">
         <View style={styles.stage}>
           <View style={styles.side}>{panel.left && <ActorView key={`l${index}`} actor={panel.left} side="left" dark={panel.dark} />}</View>
           <View style={styles.side}>{panel.right && <ActorView key={`r${index}`} actor={panel.right} side="right" dark={panel.dark} />}</View>
@@ -102,8 +98,8 @@ export default function Story() {
           <View style={styles.nameTag}>
             <Text style={styles.name}>{panel.speaker}</Text>
           </View>
-          <Text style={styles.line}>{panel.text.slice(0, shown)}</Text>
-          {shown >= panel.text.length && <Text style={styles.more}>{index + 1 >= def.panels.length ? 'Tap to go!' : 'Tap'}</Text>}
+          <Typewriter key={index} text={panel.text} onDone={() => setDone({ index, done: true })} skipRef={skipTo} />
+          {shown && <Text style={styles.more}>{index + 1 >= def.panels.length ? 'Tap to go!' : 'Tap'}</Text>}
         </Animated.View>
       </Animated.View>
 
@@ -112,6 +108,34 @@ export default function Story() {
       </Pressable>
     </View>
   );
+}
+
+/** Types one line at CPS characters a second, re-rendering only itself. Tap skips to the end through `skipRef`. */
+function Typewriter({ text, onDone, skipRef }: { text: string; onDone: () => void; skipRef: React.MutableRefObject<(() => void) | null> }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearInterval(id);
+      setN(text.length);
+      onDone();
+    };
+    const id = setInterval(() => {
+      const k = Math.min(text.length, Math.floor(((Date.now() - start) / 1000) * CPS));
+      setN(k);
+      if (k % 3 === 0) playSfx('blip');
+      if (k >= text.length) finish();
+    }, 30);
+    skipRef.current = finish;
+    return () => {
+      clearInterval(id);
+      if (skipRef.current === finish) skipRef.current = null;
+    };
+  }, [text, onDone, skipRef]);
+  return <Text style={styles.line}>{text.slice(0, n)}</Text>;
 }
 
 function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'; dark?: boolean }) {
@@ -158,13 +182,18 @@ function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'
       break;
   }
 
-  const entering = side === 'left' ? FadeInLeft.springify().damping(14) : FadeInRight.springify().damping(14);
-  // The entrance animates the outer view and the bob the inner one, so neither overwrites the other's transform.
+  // A short eased step in from the side; the bob rides on the inner view so neither overwrites the other's transform.
+  const entering = (side === 'left' ? FadeInLeft : FadeInRight).duration(320).easing(Easing.out(Easing.cubic));
   return (
     <Animated.View entering={entering}>
       <Animated.View style={[styles.actor, bobStyle]}>
         {actor.kind === 'cage' && <Image source={DOGS[actor.dog]} style={[styles.caged, { opacity: dark ? 0.4 : 1 }]} resizeMode="contain" />}
-        {source !== undefined && (
+        {actor.kind === 'pup' && actor.pose === 'walk' && !dark && (
+          <View style={{ transform: [{ scaleX: flip ? -1 : 1 }] }}>
+            <PupWalker width={size.width} />
+          </View>
+        )}
+        {source !== undefined && !(actor.kind === 'pup' && actor.pose === 'walk' && !dark) && (
           <Image
             source={source}
             style={[size, { transform: [{ scaleX: flip ? -1 : 1 }] }, dark ? { tintColor: '#000', opacity: 0.85 } : null]}

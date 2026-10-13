@@ -30,7 +30,7 @@ export const WAG_HZ = 2.8;
 export const GALLOP = {
   /** Centre frame and how far the sweep goes either side of it. */
   legCentre: 24,
-  legSweep: 8,
+  legSweep: 16,
   /** Height of the bound, in world units, and the body's pitch (nose up is negative). Kept calm: a steady lope, not a pogo. */
   lift: 3.5,
   pitch: 0.055,
