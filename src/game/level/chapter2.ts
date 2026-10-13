@@ -24,7 +24,7 @@ export const CHAPTER_2: LevelDef = {
   winTitle: 'Snacks saved!',
   background: 'room_kitchen',
   floor: 'floor_kitchen',
-  music: 'music_living',
+  music: 'music_kitchen',
   runSpeed: 320,
   floorSegments: [
     [-600, 1700],

@@ -96,6 +96,13 @@
     "bpm": 150,
     "bars": 16
   },
+  "music_kitchen.m4a": {
+    "seconds": 54.857,
+    "loop": true,
+    "samples": 2419200,
+    "bpm": 140,
+    "bars": 32
+  },
   "music_living.m4a": {
     "seconds": 58.182,
     "loop": true,

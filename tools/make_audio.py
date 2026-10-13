@@ -26,7 +26,7 @@ import numpy as np
 SR = 44100
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "assets", "game", "audio")
-FFMPEG = "/usr/bin/ffmpeg"
+FFMPEG = next((p for p in ("/usr/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg") if os.path.exists(p)), "ffmpeg")
 
 TWO_PI = 2.0 * np.pi
 
@@ -1221,8 +1221,123 @@ def music_boss():
                     rt=1.1, wet=0.2), s
 
 
+# ---------------------------------------------------------------------------
+# Track 5: Kitchen - bustling swing with pots and pans, D major, 140 bpm, 32 bars
+# ---------------------------------------------------------------------------
+
+def drum_pan():
+    """A frying pan hit with a wooden spoon: bright, ringing, short."""
+    def make():
+        n = ns(0.3)
+        x = metal_clank(n, 201, [1180, 2860, 4310, 5900], [0.11, 0.07, 0.045, 0.03])
+        return fades(x / np.max(np.abs(x)), 0.0005, 0.02)
+    return cached("pan", make)
+
+
+def drum_pot():
+    """A pot lid: lower, with a little wobble as it settles."""
+    def make():
+        n = ns(0.34)
+        t = np.arange(n) / SR
+        x = metal_clank(n, 211, [330, 790, 1460, 2210], [0.16, 0.1, 0.06, 0.04])
+        x *= 1 + 0.12 * np.sin(TWO_PI * 11 * t) * np.exp(-t / 0.15)
+        return fades(x / np.max(np.abs(x)), 0.0005, 0.03)
+    return cached("pot", make)
+
+
+def drum_woodblock():
+    """A chopping-board knock."""
+    def make():
+        n = ns(0.09)
+        t = np.arange(n) / SR
+        x = np.sin(TWO_PI * 1040 * t) * np.exp(-t / 0.014) + 0.5 * np.sin(TWO_PI * 1560 * t) * np.exp(-t / 0.008)
+        knock = fft_filter(noise(n, 221), lo=700, hi=4000) * np.exp(-t / 0.004)
+        x += 0.5 * knock / np.max(np.abs(knock))
+        return fades(x / np.max(np.abs(x)), 0.0005, 0.01)
+    return cached("woodblock", make)
+
+
+KITCHEN_CHORDS = ("D A Bm G  D A G A  D A Bm G  D G A D  "
+                  "G A F#m Bm  G A D D  Em A D Bm  G A D A").split()
+KITCHEN_MELODY = (
+    # A section: the pup trots in and sniffs around
+    "F#5:0.5 A5:0.5 D6:1 C#6:0.5 D6:0.5 A5:1 | E5:0.5 G5:0.5 C#6:1 B5:0.5 A5:0.5 E5:1 |"
+    "D5:0.5 F#5:0.5 B5:1 A5:0.5 F#5:0.5 D5:1 | G5:1 B5:0.5 G5:0.5 E5:2 |"
+    "F#5:0.5 A5:0.5 D6:1 F#6:1 E6:0.5 D6:0.5 | C#6:1.5 B5:0.5 A5:1 E5:1 |"
+    "G5:0.5 B5:0.5 D6:1 B5:0.5 G5:0.5 B5:1 | A5:2 r:1 A4:1 |"
+    "D5:0.5 D5:0.5 F#5:1 E5:0.5 D5:0.5 A4:1 | C#5:0.5 E5:0.5 A5:1 G5:0.5 E5:0.5 C#5:1 |"
+    "D5:1 B4:0.5 D5:0.5 F#5:1 D5:1 | G5:1.5 F#5:0.5 E5:1 D5:1 |"
+    "F#5:0.5 E5:0.5 D5:0.5 A4:0.5 D5:1 F#5:1 | G5:1 B5:0.5 G5:0.5 E5:2 |"
+    "A5:0.5 G5:0.5 F#5:0.5 E5:0.5 D5:1 F#5:1 | D5:2 r:1 A4:0.5 B4:0.5 |"
+    # B section: pans start flying
+    "G5:1 B5:0.5 G5:0.5 D6:1 B5:1 | A5:1 C#6:0.5 A5:0.5 E6:1 C#6:1 |"
+    "F#5:1.5 A5:0.5 C#6:1 A5:1 | B5:0.5 A5:0.5 F#5:0.5 D5:0.5 F#5:2 |"
+    "G5:1 B5:0.5 D6:0.5 G6:1 F#6:0.5 E6:0.5 | E6:0.5 C#6:0.5 A5:1 C#6:0.5 E6:0.5 A5:1 |"
+    "F#6:1 D6:1 A5:1 F#5:1 | D5:3 r:1 |"
+    "E5:0.5 G5:0.5 B5:1 A5:0.5 G5:0.5 E5:1 | C#5:0.5 E5:0.5 A5:1 G5:0.5 A5:0.5 C#6:1 |"
+    "D6:0.5 A5:0.5 F#5:1 D5:0.5 F#5:0.5 A5:1 | B5:1 D6:0.5 B5:0.5 F#5:1 D5:1 |"
+    "G5:0.5 B5:0.5 D6:0.5 G6:0.5 F#6:1 E6:1 | E6:1 C#6:0.5 A5:0.5 E5:1 G5:1 |"
+    "F#5:1.5 E5:0.5 D5:1 F#5:1 | A5:1 F#5:1 D5:1 r:1"
+)
+
+SWING = 0.09  # beats: offbeat eighths land a little late, so the tune bounces like a trot
+
+
+def swing(beat_pos):
+    """Pushes an offbeat eighth (x.5) later by SWING beats; everything else stays put."""
+    frac = beat_pos - np.floor(beat_pos)
+    return beat_pos + (SWING if abs(frac - 0.5) < 1e-6 else 0.0)
+
+
+def music_kitchen():
+    s = Song(140, 32)
+    mel = [(swing(st), d - (SWING if abs(st - np.floor(st) - 0.5) < 1e-6 else 0.0), m) for st, d, m in parse_melody(KITCHEN_MELODY)]
+    # A bright, slightly nasal lead (a kazoo-ish pulse) with a soft triangle under it.
+    add_melody(s, "lead", mel, lambda f, d: inst_lead(f, d, duty=0.18, bright=3000, vib=0.006), 0.27, 0.0, gate=0.82)
+    add_melody(s, "lead2", mel, lambda f, d: inst_lead(f, d, duty=0.5, bright=1800, vib=0.0, shape="tri"), 0.12, 0.15, gate=0.82, transpose=-12)
+    s.echo("lead", 0.5, fb=0.16, taps=2)
+    for bar, ch in enumerate(KITCHEN_CHORDS):
+        # Chopped offbeat chords, like a knife on a board.
+        tones = chord_tones(ch, 57)
+        for beat in (0.5, 1.5, 2.5, 3.5):
+            for m in tones:
+                s.add("chops", inst_pluck(mtof(m), 0.22 * s.beat, shape="pulse", duty=0.3, bright=2200, tau=0.05),
+                      bar * 4 + swing(beat), 0.07, 0.3)
+        # Walking bass: root, third, fifth, sixth, then back down on even bars.
+        r = chord_root(ch, 40)
+        third = 3 if "m" in ch and "maj" not in ch else 4
+        walk = [0, third, 7, 9] if bar % 2 == 0 else [0, 7, third, -3]
+        for i, o in enumerate(walk):
+            s.add("bass", inst_bass(mtof(r + o), 0.8 * s.beat, bright=900, tau=0.2, sus=0.5), bar * 4 + i, 0.34, 0.0)
+        # Glock sprinkles in the B section.
+        if bar >= 16:
+            up = chord_tones(ch, 74)
+            seq = [up[0], up[2], up[1], up[0] + 12]
+            for i, m in enumerate(seq):
+                s.add("glock", inst_bell(mtof(m), tau=0.3, bright_ratio=0.5), bar * 4 + swing(i + 0.5), 0.06, -0.45)
+        # Drums: brushed kit under pots and pans. Every fourth bar the pans take a solo.
+        pans = bar % 4 == 3
+        pat = [(0, drum_kick(), 0.42, 0), (2, drum_kick(), 0.38, 0), (1, drum_snare(), 0.18, 0.05), (3, drum_snare(), 0.18, 0.05)]
+        for i in range(8):
+            pat.append((swing(i * 0.5), drum_shaker(), 0.05 if i % 2 == 0 else 0.09, -0.2))
+        pat += [(swing(1.5), drum_woodblock(), 0.16, 0.25), (swing(3.5), drum_woodblock(), 0.14, 0.25)]
+        if not pans:
+            if bar % 2 == 0:
+                pat.append((swing(2.5), drum_pan(), 0.1, 0.4))
+            else:
+                pat.append((swing(0.5), drum_pot(), 0.12, -0.35))
+        else:
+            for i, (smp, g, p) in enumerate(((drum_pan(), 0.14, 0.4), (drum_pot(), 0.14, -0.35), (drum_pan(), 0.12, 0.2), (drum_woodblock(), 0.18, 0.0))):
+                pat.append((2 + swing(i * 0.5) - (0 if i % 2 == 0 else 0), smp, g, p))
+        if bar in (0, 16):
+            pat.append((0, drum_crash(), 0.1, 0.3))
+        add_drum_pattern(s, bar, pat)
+    return s.render(levels={}, sends={"lead": 0.28, "lead2": 0.15, "chops": 0.22, "glock": 0.45, "drums": 0.12},
+                    rt=1.1, wet=0.2), s
+
+
 MUSIC = {"music_menu": music_menu, "music_story": music_story,
-         "music_living": music_living, "music_boss": music_boss}
+         "music_living": music_living, "music_boss": music_boss, "music_kitchen": music_kitchen}
 
 
 # ---------------------------------------------------------------------------

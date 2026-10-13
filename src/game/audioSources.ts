@@ -20,6 +20,7 @@ export const SOUND_SOURCES = {
   jump: require('../../assets/game/audio/jump.m4a'),
   land: require('../../assets/game/audio/land.m4a'),
   music_boss: require('../../assets/game/audio/music_boss.m4a'),
+  music_kitchen: require('../../assets/game/audio/music_kitchen.m4a'),
   music_living: require('../../assets/game/audio/music_living.m4a'),
   music_menu: require('../../assets/game/audio/music_menu.m4a'),
   music_story: require('../../assets/game/audio/music_story.m4a'),
