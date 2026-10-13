@@ -7,7 +7,7 @@ import sys
 from PIL import Image, ImageDraw
 
 ROOT = '/Users/alexmedina/bark-party-game'
-STRIDE = 14
+STRIDE = 18
 RECT = -1
 FLOOR_SCREEN_Y = 310
 
@@ -17,14 +17,21 @@ k = data['k']
 pages = [Image.open(f'{ROOT}/assets/game/atlas/{p}').convert('RGBA') for p in json.load(open(f'{ROOT}/src/game/render/atlas.json'))['pages']]
 
 GIF = out_path.endswith('.gif')
+MP4 = out_path.endswith('.mp4')
+# A video shows what the phone shows: two display frames per simulation step, the first blended halfway
+# toward the previous step (what the 120 Hz canvas draws), the second exactly on the step.
+BLENDS = (0.5, 1.0) if MP4 else (1.0,)
 CROP = 320  # px around the hero
 tiles = []
 for fr in data['frames']:
+  for blend in BLENDS:
     W, H = int(640 * k), int(360 * k)
     canvas = Image.new('RGBA', (W, H), (240, 230, 220, 255))
     d = fr['ops']
     for i in range(0, len(d), STRIDE):
-        img, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color, pcx, pcy = d[i:i + STRIDE]
+        img, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color, pcx, pcy, pdw, pdh, prot, palpha = d[i:i + STRIDE]
+        b = 1 - blend
+        cx, cy, dw, dh, rot, alpha = pcx * b + cx * blend, pcy * b + cy * blend, pdw * b + dw * blend, pdh * b + dh * blend, prot * b + rot * blend, palpha * b + alpha * blend
         if alpha <= 0.01:
             continue
         if img == RECT:
@@ -41,7 +48,7 @@ for fr in data['frames']:
         if rot:
             layer = layer.rotate(-rot * 180 / math.pi, resample=Image.BICUBIC, expand=True)
         canvas.alpha_composite(layer, (int(round(cx - layer.width / 2)), int(round(cy - layer.height / 2))))
-    if GIF:
+    if GIF or MP4:
         # The whole view, as the phone shows it, with the camera's own framing.
         tiles.append(canvas.convert('RGB'))
         continue
@@ -52,6 +59,16 @@ for fr in data['frames']:
     tile = canvas.crop(box)
     ImageDraw.Draw(tile).text((6, 6), fr['label'], fill=(20, 10, 10, 255))
     tiles.append(tile)
+
+if MP4:
+    import os, subprocess, tempfile
+    fps = int(sys.argv[3]) if len(sys.argv) > 3 else 120
+    tmp = tempfile.mkdtemp()
+    for n, t in enumerate(tiles):
+        t.save(f'{tmp}/f{n:05d}.png')
+    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', str(fps), '-i', f'{tmp}/f%05d.png', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart', out_path], check=True)
+    print('wrote', out_path, tiles[0].size, len(tiles), 'frames at', fps, 'fps')
+    sys.exit(0)
 
 if GIF:
     fps = int(sys.argv[3]) if len(sys.argv) > 3 else 30

@@ -270,7 +270,6 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       if (steps === 0 && s !== 'ready') return;
       // One op list per step; the canvas draws the frames in between (see GameCanvasImpl).
       const t0 = __DEV__ ? performance.now() : 0;
-      out.data = [];
       buildFrame(world, {
         atlas: atlasData,
         background: { image: ATLAS_PAGES.length, w: ROOM_SIZE.w, h: ROOM_SIZE.h },

@@ -3,15 +3,41 @@
 // The frame logic follows the Dog Better pup (src/engine/pupPuppet.ts there), which this art comes from.
 
 import { PUP_LEG_FRAMES, PUP_TAIL_FRAMES } from '../sprites';
-import type { Hero } from '../sim/types';
+
+/** The hero state the pose reads: the live hero, or a snapshot of it one step earlier. */
+export interface PoseInput {
+  onGround: boolean;
+  airTime: number;
+  sinceLand: number;
+  vy: number;
+  restBlend: number;
+  boost: number;
+  landImpact: number;
+}
 
 /** Stride frames with the legs gathered under the body: shown rising, then falling. */
 export const TUCK_UP = 12;
 export const TUCK_DOWN = 36;
 /** Seconds to fade from the stride to the tuck when leaving the ground, and back when landing. */
 export const TUCK_BLEND = 0.08;
-/** Tail wags per second while running, as in Dog Better. */
-export const WAG_HZ = 2.4;
+/** Tail wags per second while running: faster than Dog Better's trot, it is a gallop. */
+export const WAG_HZ = 3.4;
+
+/**
+ * The gallop sweeps the leg strip between gathered and extended instead of walking through
+ * all 48 frames: a walk cycle played at running speed flutters, a bound reads.
+ */
+export const GALLOP = {
+  /** Centre frame and how far the sweep goes either side of it. */
+  legCentre: 24,
+  legSweep: 11,
+  /** Height of the bound, in world units, and the body's pitch (nose up is negative). */
+  lift: 7,
+  pitch: 0.11,
+  /** Stretch in the air, squash on contact. */
+  stretch: 0.06,
+  squash: 0.07,
+} as const;
 
 export interface PupPose {
   /** Stride frames: `legA` shows fully, `legB` on top at `legT`. */
@@ -28,6 +54,17 @@ export interface PupPose {
   tailT: number;
 }
 
+export interface GallopBody {
+  /** Feet height above the ground line, world units. */
+  lift: number;
+  /** Body pitch in radians, screen-clockwise positive. */
+  rot: number;
+  /** Vertical scale about the paws; width follows as 1 / sqrt. */
+  sy: number;
+  /** Where in the bound: 0 at contact, 0.5 fully extended in the air. */
+  phase: number;
+}
+
 export function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
@@ -37,26 +74,50 @@ export function smooth(u: number): number {
   return x * x * (3 - 2 * x);
 }
 
-/** The two stride frames around `phase` (0..1 repeating) and how far between them. Wraps, so the loop never hitches. */
+const frac = (v: number) => v - Math.floor(v);
+
+/** The two stride frames around a float index and how far between them. Wraps, so the loop never hitches. */
+export function framesAt(index: number, count: number): { a: number; b: number; t: number } {
+  const pos = ((index % count) + count) % count;
+  const a = Math.floor(pos);
+  return { a, b: (a + 1) % count, t: pos - a };
+}
+
+/** The two stride frames around `phase` (0..1 repeating) for a plain walk. */
 export function legFrames(phase: number): { a: number; b: number; t: number } {
-  const pos = (phase - Math.floor(phase)) * PUP_LEG_FRAMES;
-  const a = Math.floor(pos) % PUP_LEG_FRAMES;
-  return { a, b: (a + 1) % PUP_LEG_FRAMES, t: pos - Math.floor(pos) };
+  return framesAt(frac(phase) * PUP_LEG_FRAMES, PUP_LEG_FRAMES);
+}
+
+/** The gallop's leg strip index at stride phase `phase`: gathered at contact, extended mid-flight. */
+export function gallopLegIndex(phase: number): number {
+  return GALLOP.legCentre - GALLOP.legSweep * Math.cos(2 * Math.PI * (frac(phase) - 0.05));
+}
+
+/**
+ * The body in one bound. Contact at phase 0: squashed, nose level. Push at 0.2: stretching, nose
+ * up. Flight around 0.5: highest, nose coming down. Landing at 0.9: dropping into the squash.
+ */
+export function gallopBody(phase: number): GallopBody {
+  const p = frac(phase);
+  const w = 2 * Math.PI * p;
+  // Paws down for the first and last quarter, in the air for the middle half.
+  const air = Math.max(0, -Math.cos(w));
+  const lift = GALLOP.lift * air * air;
+  const rot = -GALLOP.pitch * Math.sin(w);
+  const sy = 1 + GALLOP.stretch * air - GALLOP.squash * Math.max(0, Math.cos(w)) ** 3;
+  return { lift, rot, sy, phase: p };
 }
 
 /** The two tail frames at time `t` seconds and how far between them. */
 export function tailFrames(t: number): { a: number; b: number; t: number } {
-  const wags = t * WAG_HZ;
-  const pos = (wags - Math.floor(wags)) * PUP_TAIL_FRAMES;
-  const a = Math.floor(pos) % PUP_TAIL_FRAMES;
-  return { a, b: (a + 1) % PUP_TAIL_FRAMES, t: pos - Math.floor(pos) };
+  return framesAt(frac(t * WAG_HZ) * PUP_TAIL_FRAMES, PUP_TAIL_FRAMES);
 }
 
 /**
  * How much of the stride gives way to the tuck: fades in over the first moments in the air and fades
  * out over the first moments after landing. Reads the timers the hero already keeps.
  */
-export function tuckShare(h: Pick<Hero, 'onGround' | 'airTime' | 'sinceLand'>): number {
+export function tuckShare(h: Pick<PoseInput, 'onGround' | 'airTime' | 'sinceLand'>): number {
   return h.onGround ? 1 - clamp01(h.sinceLand / TUCK_BLEND) : clamp01(h.airTime / TUCK_BLEND);
 }
 
@@ -68,8 +129,8 @@ export function fallShare(vy: number): number {
   return smooth((60 - vy) / 120);
 }
 
-export function puppetPose(h: Hero, stride: number, t: number): PupPose {
-  const legs = legFrames(stride);
+export function puppetPose(h: PoseInput, stride: number, t: number): PupPose {
+  const legs = framesAt(gallopLegIndex(stride), PUP_LEG_FRAMES);
   const tail = tailFrames(t);
   return {
     legA: legs.a,

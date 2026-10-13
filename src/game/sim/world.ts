@@ -35,7 +35,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     phase: 'run',
     phaseT: 0,
     hero: makeHero(0, level.runSpeed, maxHearts),
-    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0 },
+    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0 },
     camX: 0,
     camY: 0,
     camLead: 0,
@@ -105,7 +105,17 @@ export function snapPrev(world: World) {
   p.camX = world.camX;
   p.camY = world.camY;
   p.t = world.t;
-  p.stride = world.hero.stride;
+  const h = world.hero;
+  p.stride = h.stride;
+  p.vy = h.vy;
+  p.sinceLand = h.sinceLand;
+  p.airTime = h.airTime;
+  p.boost = h.boost;
+  p.restBlend = h.restBlend;
+  p.landImpact = h.landImpact;
+  p.invuln = h.invuln;
+  p.shakeX = world.shake.x;
+  p.shakeY = world.shake.y;
   for (const e of world.enemies) {
     e.px = e.x;
     e.py = e.y;
@@ -453,7 +463,12 @@ function stepHero(world: World, input: Input, dt: number) {
   else h.pose = 'run';
 
   // Legs follow the ground actually covered, so they stop when the dog is blocked and never spin faster than a run.
-  if (h.onGround) h.stride = (h.stride + Math.min(h.x - xBefore, MAX_STRIDE_SPEED * dt) / STRIDE_LEN) % 1;
+  if (h.onGround) {
+    const before = h.stride;
+    h.stride = (h.stride + Math.min(h.x - xBefore, MAX_STRIDE_SPEED * dt) / STRIDE_LEN) % 1;
+    // Each bound lands on the paws: a small puff keeps the run on the ground.
+    if (h.stride < before && h.vx > 200 && h.pose === 'run') dust(world, h.x - 14, h.y, 1);
+  }
   h.restBlend = Math.min(1, Math.max(0, h.restBlend + (h.blocked ? dt : -dt) / REST_BLEND));
 }
 

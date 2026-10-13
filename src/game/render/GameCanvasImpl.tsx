@@ -30,8 +30,8 @@ function logUiFps(frames: number) {
 
 /**
  * Draws the op list from buildFrame. The simulation hands over a new list each of its steps; between
- * lists, every display frame draws each op part way from where it was to where it is now, so a
- * 120 Hz screen gets a fresh picture every frame.
+ * lists, every display frame draws each op part way from where (and how) it was to where it is now:
+ * position, size, tilt and fade all blend, so a 120 Hz screen gets a fresh picture every frame.
  */
 export function GameCanvas({ ops, width, height, background }: Props) {
   // ATLAS_PAGES has a fixed length, so this keeps the hook order stable.
@@ -72,19 +72,20 @@ export function GameCanvas({ ops, width, height, background }: Props) {
   const picture = useDerivedValue(() => {
     const d = ops.value;
     const a = blend.value;
+    const b = 1 - a;
     return createPicture(
       (canvas) => {
         const paint = Skia.Paint();
         paint.setAntiAlias(true);
         for (let i = 0; i + STRIDE <= d.length; i += STRIDE) {
           const img = d[i];
-          const dw = d[i + 7];
-          const dh = d[i + 8];
-          const rot = d[i + 9];
-          const alpha = d[i + 10];
+          const alpha = d[i + 17] * b + d[i + 10] * a;
           if (alpha <= 0.01) continue;
-          const cx = d[i + 12] + (d[i + 5] - d[i + 12]) * a;
-          const cy = d[i + 13] + (d[i + 6] - d[i + 13]) * a;
+          const cx = d[i + 12] * b + d[i + 5] * a;
+          const cy = d[i + 13] * b + d[i + 6] * a;
+          const dw = d[i + 14] * b + d[i + 7] * a;
+          const dh = d[i + 15] * b + d[i + 8] * a;
+          const rot = d[i + 16] * b + d[i + 9] * a;
           canvas.save();
           canvas.translate(cx, cy);
           if (rot !== 0) canvas.rotate((rot * 180) / Math.PI, 0, 0);

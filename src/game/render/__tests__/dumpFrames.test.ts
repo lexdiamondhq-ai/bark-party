@@ -24,8 +24,9 @@ const CLIP = !!process.env.DUMP_CLIP;
   // Warm up so the trail is full, then 3 s at 30 fps: free the pup at x≈400, jump the pit at x≈700, land, run on.
   for (let i = 0; i < 30; i++) stepWorld(w, NO_INPUT, STEP);
   let held = 0;
-  for (let f = 0; f < 90; f++) {
-    for (let j = 0; j < 2; j++) {
+  const per = Number(process.env.DUMP_STEPS ?? 2);
+  for (let f = 0; f < 90 * (2 / per); f++) {
+    for (let j = 0; j < per; j++) {
       const nearPit = w.hero.x > 640 && w.hero.onGround && held === 0;
       const input = nearPit ? press : held > 0 && held < 12 ? hold : NO_INPUT;
       if (nearPit || (held > 0 && held < 12)) held++;

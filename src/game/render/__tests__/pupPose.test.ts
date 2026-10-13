@@ -3,7 +3,7 @@ import { CHAPTER_1 } from '../../level/chapter1';
 import { MAX_STRIDE_SPEED, STEP, STRIDE_LEN } from '../../constants';
 import { createWorld, stepWorld } from '../../sim/world';
 import { NO_INPUT, type Hero } from '../../sim/types';
-import { TUCK_BLEND, fallShare, legFrames, tailFrames, tuckShare } from '../pupPose';
+import { GALLOP, TUCK_BLEND, WAG_HZ, fallShare, gallopBody, gallopLegIndex, legFrames, tailFrames, tuckShare } from '../pupPose';
 import { STRIDE, buildFrame, puppetLayers, type AtlasData } from '../buildFrame';
 
 const hero = (over: Partial<Hero> = {}): Hero => ({
@@ -58,7 +58,7 @@ describe('leg frames', () => {
     const seen = new Set<number>();
     for (let i = 0; i < 400; i++) seen.add(tailFrames(i / 400).a);
     expect(seen.size).toBe(PUP_TAIL_FRAMES);
-    expect(tailFrames(1 / 2.4 - 1e-6).b).toBe(0);
+    expect(tailFrames(1 / WAG_HZ - 1e-6).b).toBe(0);
   });
 });
 
@@ -80,10 +80,39 @@ describe('tuck and fall', () => {
   });
 });
 
+describe('gallop', () => {
+  it('sweeps the legs between gathered and extended, never off the strip', () => {
+    let lo = 99;
+    let hi = -1;
+    for (let i = 0; i < 200; i++) {
+      const f = gallopLegIndex(i / 200);
+      lo = Math.min(lo, f);
+      hi = Math.max(hi, f);
+    }
+    expect(lo).toBeCloseTo(GALLOP.legCentre - GALLOP.legSweep, 1);
+    expect(hi).toBeCloseTo(GALLOP.legCentre + GALLOP.legSweep, 1);
+    expect(lo).toBeGreaterThanOrEqual(0);
+    expect(hi).toBeLessThan(48);
+  });
+
+  it('bounds: on the ground at contact, highest mid-flight, squashed on contact and stretched in the air', () => {
+    const contact = gallopBody(0);
+    const flight = gallopBody(0.5);
+    expect(contact.lift).toBeLessThan(0.5);
+    expect(flight.lift).toBeGreaterThan(GALLOP.lift * 0.7);
+    expect(contact.sy).toBeLessThan(1);
+    expect(flight.sy).toBeGreaterThan(1);
+    // Nose up on the push, nose down coming in to land.
+    expect(gallopBody(0.3).rot).toBeLessThan(0);
+    expect(gallopBody(0.8).rot).toBeGreaterThan(0);
+  });
+});
+
 describe('puppet layers', () => {
   it('shows two stride frames on the ground and only the tuck in the air', () => {
-    const run = puppetLayers(hero(), 0.3, 1).filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
-    expect(run.map((l) => l.name)).toEqual(['pup_leg_14', 'pup_leg_15']);
+    const run = puppetLayers(hero(), 0.33, 1).filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
+    const i = Math.floor(gallopLegIndex(0.33));
+    expect(run.map((l) => l.name)).toEqual([`pup_leg_${i}`, `pup_leg_${i + 1}`]);
     const air = puppetLayers(hero({ onGround: false, airTime: 1, vy: 400 }), 0.3, 1).filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
     expect(air.map((l) => l.name)).toEqual(['pup_leg_12']);
   });
@@ -130,7 +159,7 @@ describe('frame interpolation', () => {
     return null;
   };
 
-  it('gives every op where it was one step ago, in the previous camera', () => {
+  it('gives every op where it was one step ago, in the previous camera, and its previous tilt', () => {
     const w = createWorld({ ...CHAPTER_1, enemies: [], pickups: [], cages: [], boss: undefined, platforms: [{ sprite: 'couch', x: 300 }] }, 640);
     stepWorld(w, NO_INPUT, STEP);
     stepWorld(w, NO_INPUT, STEP);
@@ -142,6 +171,13 @@ describe('frame interpolation', () => {
     // The couch stands still in the world, so on screen it moved back by the camera's move.
     expect(couch.cx - couch.pcx).toBeCloseTo(-(w.camX - w.prev.camX));
     expect(couch.cy).toBe(couch.pcy);
+    // The hero's tilt changes with the bound, and the previous tilt rides along in the op.
+    const rot = (data: number[], srcW: number) => {
+      for (let i = 0; i < data.length; i += STRIDE) if (data[i] === 0 && data[i + 3] === srcW) return { rot: data[i + 9], prot: data[i + 16] };
+      return null;
+    };
+    const r = rot(data, 10)!;
+    expect(r.prot).not.toBe(r.rot);
   });
 
   it('starts a fresh world with no motion to blend from', () => {

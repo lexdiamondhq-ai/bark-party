@@ -61,6 +61,16 @@ export interface RenderPrev {
   camY: number;
   t: number;
   stride: number;
+  /** Hero timers the pose depends on, so the previous frame's squash and tilt can be drawn too. */
+  vy: number;
+  sinceLand: number;
+  airTime: number;
+  boost: number;
+  restBlend: number;
+  landImpact: number;
+  invuln: number;
+  shakeX: number;
+  shakeY: number;
 }
 
 export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';
