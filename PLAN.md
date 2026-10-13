@@ -190,3 +190,12 @@ Commits after each phase with one-sentence subjects (for example "Make the pup's
 - The hero runs with a gallop rig (`pupPose.ts` `gallopBody`, `gallopLegIndex`, `GALLOP` knobs): bound, pitch, stretch and squash, legs sweeping gathered to extended, dust on each contact.
 - The wagon rolls on a slow wheel bounce and a wide-window tilt (`followers.ts`).
 - `tools/composite_frames.py out.mp4 120` renders a 120 fps video with the same half-step blend the phone draws; `DUMP_STEPS=1` dumps one step per frame.
+
+## Power Treats (2026-10-13, Alex: "make some level ups that make the dog bigger, faster, shoot balls")
+
+1. Art (props only): `tennis_ball`, `bubble`, and four icons `power_mega`, `power_turbo`, `power_ball`, `power_bubble` in `tools/gen_sprites.js`; rendered, packed, shown to Alex. Proof: the prop sheet.
+2. Sim (`world.ts`): presents grant a random power; `hero.powers` timers for mega, turbo, ball, bubble; mega crushes enemies and ignores acorns and scales the hit box; turbo multiplies speed and bone value; ball mouth turns BARK into tennis balls that stun, pop acorns and hit the boss; bubble eats one hit. Proof: `power.test.ts`, one test per power.
+3. Render: the pup drawn at 1.6x under mega, the bubble around it, balls in flight, bigger dust. Proof: a 120 fps clip of mega and ball mouth shown to Alex before the shop.
+4. HUD: a chip per live power with a draining ring; the present pop names the power. Proof: web screenshots.
+5. Progress: four more treats (Mega lasts longer, Turbo lasts longer, Twin balls, Start with a Bubble) in `engine/progress.ts`, read by the sim through `RunBoosts`. Proof: progress tests and the Treats tab on the web build.
+6. Levels: two more presents per chapter in risky spots. Proof: the autopilot still clears both chapters.

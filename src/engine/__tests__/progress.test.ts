@@ -73,7 +73,7 @@ describe('treats', () => {
 
   it('turn into run boosts', () => {
     const p = { ...emptyProgress(), upgrades: { heart: 1, magnet: 2, jump: 1 } };
-    expect(runBoosts(p)).toEqual({ extraHearts: 1, barkRangeBonus: 0, magnetRange: 120, doubleJumpBonus: 90 });
+    expect(runBoosts(p)).toEqual({ extraHearts: 1, barkRangeBonus: 0, magnetRange: 120, doubleJumpBonus: 90, megaBonus: 0, turboBonus: 0, balls: 1, startBubble: false });
   });
 });
 

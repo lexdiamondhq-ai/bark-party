@@ -16,6 +16,10 @@ const ART: Record<UpgradeId, number> = {
   bark: require('../../../assets/game/sprites/bark_burst.png'),
   magnet: require('../../../assets/game/sprites/bone_gold.png'),
   jump: require('../../../assets/game/sprites/star.png'),
+  mega: require('../../../assets/game/sprites/power_mega.png'),
+  turbo: require('../../../assets/game/sprites/power_turbo.png'),
+  twin: require('../../../assets/game/sprites/power_ball.png'),
+  bubble: require('../../../assets/game/sprites/power_bubble.png'),
 };
 const HEART = require('../../../assets/game/sprites/heart.png');
 const STAR = require('../../../assets/game/sprites/star.png');

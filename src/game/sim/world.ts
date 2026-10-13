@@ -1,10 +1,10 @@
-import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, STRIDE_LEN } from '../constants';
+import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, POWER, STRIDE_LEN } from '../constants';
 import type { LevelDef } from '../level/types';
 import { PUP_LEG_FRAMES, SPRITES, type SpriteName } from '../sprites';
 import { NO_BOOSTS, type RunBoosts } from '../../engine/progress';
 import { seededRng } from '../../engine/rng';
 import { HITSTOP, addShake, cameraLead, cameraLift, decayShake, landImpact, type ShakeKind } from './feel';
-import type { Acorn, Boss, Enemy, GameEvent, Hero, Input, Particle, Platform, World } from './types';
+import type { Acorn, Ball, Boss, Enemy, GameEvent, Hero, Input, Particle, Platform, PowerKind, World } from './types';
 
 /** The legs settle onto four paws over this long when the dog is stopped by a solid piece. */
 const REST_BLEND = 0.15;
@@ -34,8 +34,8 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     t: 0,
     phase: 'run',
     phaseT: 0,
-    hero: makeHero(0, level.runSpeed, maxHearts),
-    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0 },
+    hero: makeHero(0, level.runSpeed, maxHearts, boosts.startBubble ? 1 : 0),
+    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0, mega: 0, megaAge: 0 },
     camX: 0,
     camY: 0,
     camLead: 0,
@@ -47,6 +47,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     floor: level.floorSegments.map(([a, b]) => [a, b] as [number, number]),
     enemies,
     acorns: [],
+    balls: [],
     pickups: level.pickups.map((p) => ({
       kind: p.kind,
       x: p.x,
@@ -116,6 +117,12 @@ export function snapPrev(world: World) {
   p.invuln = h.invuln;
   p.shakeX = world.shake.x;
   p.shakeY = world.shake.y;
+  p.mega = h.powers.mega;
+  p.megaAge = h.powers.megaAge;
+  for (const b of world.balls) {
+    b.px = b.x;
+    b.py = b.y;
+  }
   for (const e of world.enemies) {
     e.px = e.x;
     e.py = e.y;
@@ -134,7 +141,7 @@ export function snapPrev(world: World) {
   }
 }
 
-function makeHero(x: number, vx: number, hearts: number): Hero {
+function makeHero(x: number, vx: number, hearts: number, bubble = 0): Hero {
   return {
     x,
     y: 0,
@@ -158,8 +165,44 @@ function makeHero(x: number, vx: number, hearts: number): Hero {
     blocked: false,
     restBlend: 0,
     pose: 'run',
+    powers: { mega: 0, turbo: 0, ball: 0, megaAge: 0, bubble },
   };
 }
+
+/** How big the pup is right now: 1, or up to POWER.megaScale while Mega Pup is on (ramping in and out). */
+export function heroScale(h: Hero): number {
+  const pw = h.powers;
+  if (pw.mega <= 0) return 1;
+  const ramp = Math.min(1, pw.megaAge / POWER.megaRamp, pw.mega / POWER.megaRamp);
+  return 1 + (POWER.megaScale - 1) * ramp;
+}
+
+/** A present opens into one of the four powers, chosen at random; the pup keeps the ones it has. */
+function grantPower(world: World, kind: PowerKind) {
+  const h = world.hero;
+  const pw = h.powers;
+  let seconds = 0;
+  if (kind === 'mega') {
+    if (pw.mega <= 0) pw.megaAge = 0;
+    seconds = POWER.megaTime + world.boosts.megaBonus;
+    pw.mega = Math.max(pw.mega, seconds);
+    impact(world, 'boss_hit', 0.5);
+  } else if (kind === 'turbo') {
+    seconds = POWER.turboTime + world.boosts.turboBonus;
+    pw.turbo = Math.max(pw.turbo, seconds);
+    sfx(world, 'whoosh');
+  } else if (kind === 'ball') {
+    seconds = POWER.ballTime;
+    pw.ball = Math.max(pw.ball, seconds);
+  } else {
+    pw.bubble += 1;
+  }
+  haptic(world, 'success');
+  emit(world, { type: 'power', kind, seconds });
+  for (let i = 0; i < 10; i++) spark(world, h.x, h.y + 30, 'star');
+}
+
+const POWER_KINDS: PowerKind[] = ['mega', 'turbo', 'ball', 'bubble'];
 
 function pickupSprite(kind: 'bone' | 'bone_gold' | 'present', x: number): SpriteName {
   if (kind === 'bone') return 'bone';
@@ -271,6 +314,7 @@ export function stepWorld(world: World, input: Input, dtRaw: number): void {
   stepHero(world, input, dt);
   stepEnemies(world, dt);
   stepAcorns(world, dt);
+  stepBalls(world, dt);
   stepBoss(world, dt);
   collectPickups(world, dt);
   openCages(world);
@@ -328,6 +372,17 @@ function stepHero(world: World, input: Input, dt: number) {
   const wasSliding = h.sliding > 0;
   h.sliding = Math.max(0, h.sliding - dt);
   h.boost = Math.max(0, h.boost - dt);
+  const pw = h.powers;
+  if (pw.mega > 0) {
+    pw.megaAge += dt;
+    pw.mega = Math.max(0, pw.mega - dt);
+    if (pw.mega === 0) {
+      sfx(world, 'slide');
+      dust(world, h.x, h.y, 3);
+    }
+  }
+  pw.turbo = Math.max(0, pw.turbo - dt);
+  pw.ball = Math.max(0, pw.ball - dt);
   h.sinceLand += dt;
   h.jumpBuffer = Math.max(0, h.jumpBuffer - dt);
   h.slideBuffer = Math.max(0, h.slideBuffer - dt);
@@ -364,7 +419,7 @@ function stepHero(world: World, input: Input, dt: number) {
   // Running speed: auto-run (faster during zoomies), stopping only when blocked or after the win.
   if (won) h.vx = Math.max(0, h.vx - dt * 500);
   else {
-    const speed = world.level.runSpeed * (h.boost > 0 ? PHYS.boostSpeed : 1);
+    const speed = world.level.runSpeed * (h.boost > 0 ? PHYS.boostSpeed : 1) * (h.powers.turbo > 0 ? POWER.turboSpeed : 1);
     h.vx += (speed - h.vx) * Math.min(1, dt * 10);
   }
 
@@ -476,6 +531,15 @@ function bark(world: World) {
   const h = world.hero;
   h.barking = PHYS.barkTime;
   h.barkCooldown = PHYS.barkCooldown;
+  if (h.powers.ball > 0) {
+    // Ball Mouth: the bark comes out as tennis balls.
+    const n = world.boosts.balls;
+    for (let i = 0; i < n; i++) {
+      world.balls.push({ x: h.x + 30 * heroScale(h), y: h.y + 34 * heroScale(h) + (n > 1 ? (i - (n - 1) / 2) * 16 : 0), vx: POWER.ballSpeed + h.vx, t: 0, alive: true });
+    }
+    sfx(world, 'acorn_throw');
+    h.barkCooldown = PHYS.barkCooldown * 0.55;
+  }
   sfx(world, world.phase === 'boss' ? 'bark_big' : 'bark');
   haptic(world, 'medium');
   impact(world, 'bark');
@@ -553,6 +617,17 @@ function stun(world: World, e: Enemy, vx: number, vy: number) {
 function hurt(world: World) {
   const h = world.hero;
   if (h.invuln > 0 || world.phase === 'won') return;
+  if (h.powers.bubble > 0) {
+    // The Bubble takes the hit and pops.
+    h.powers.bubble -= 1;
+    h.invuln = 0.8;
+    impact(world, 'bark_hit');
+    sfx(world, 'acorn_hit');
+    haptic(world, 'medium');
+    emit(world, { type: 'bubble_pop' });
+    for (let i = 0; i < 12; i++) spark(world, h.x, h.y + 36, 'star');
+    return;
+  }
   loseHeart(world, false);
 }
 
@@ -584,7 +659,10 @@ function loseHeart(world: World, fell: boolean) {
 
 function respawn(world: World) {
   const h = world.hero;
+  const kept = h.powers;
   Object.assign(h, makeHero(world.respawnX, world.level.runSpeed, h.hearts));
+  h.powers = { ...kept, mega: 0, turbo: 0, megaAge: 0 };
+  world.balls = [];
   h.invuln = 1.2;
   h.y = groundBelow(world, h.x, 10, 999) ?? 0;
   world.phase = world.boss && world.boss.phase !== 'waiting' && world.boss.phase !== 'gone' ? 'boss' : 'run';
@@ -617,7 +695,9 @@ export function continueFromCheckpoint(world: World) {
 
 function stepEnemies(world: World, dt: number) {
   const h = world.hero;
-  const heroH = h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h;
+  const big = heroScale(h);
+  const heroH = (h.sliding > 0 ? HERO_BOX.slideH : HERO_BOX.h) * big;
+  const mega = h.powers.mega > 0;
   for (const e of world.enemies) {
     e.t += dt;
     e.pop = Math.max(0, e.pop - dt);
@@ -672,12 +752,28 @@ function stepEnemies(world: World, dt: number) {
     // Contact with the dog.
     const ex0 = e.x - e.w / 2;
     const ex1 = e.x + e.w / 2;
-    const hx0 = h.x - HERO_BOX.w / 2 + 4;
-    const hx1 = h.x + HERO_BOX.w / 2 - 4;
+    const hx0 = h.x - (HERO_BOX.w / 2) * big + 4;
+    const hx1 = h.x + (HERO_BOX.w / 2) * big - 4;
     if (hx1 < ex0 || hx0 > ex1) continue;
     const ey0 = e.y;
     const ey1 = e.y + e.h;
     if (h.y + heroH < ey0 || h.y > ey1) continue;
+
+    if (mega) {
+      // Mega Pup crushes whatever it runs into; the cat bolts.
+      if (e.type === 'cat') {
+        e.state = 'fled';
+        e.vx = 300;
+        e.vy = 320;
+        e.pop = 0.18;
+        sfx(world, 'cat_hiss');
+      } else {
+        stun(world, e, 380, 360);
+        impact(world, 'stomp');
+        haptic(world, 'medium');
+      }
+      continue;
+    }
 
     const fromAbove = h.vy < 0 && h.y > ey1 - 18;
     if (e.type === 'cat') {
@@ -783,13 +879,65 @@ function stepAcorns(world: World, dt: number) {
       }
       continue;
     }
-    // Hit the dog?
-    if (Math.abs(a.x - h.x) < HERO_BOX.w / 2 + 6 && a.y > h.y - 4 && a.y < h.y + heroH) {
+    // Hit the dog? Mega Pup just bats it away.
+    const big = heroScale(h);
+    if (Math.abs(a.x - h.x) < (HERO_BOX.w / 2) * big + 6 && a.y > h.y - 4 && a.y < h.y + heroH * big) {
       a.alive = false;
-      hurt(world);
+      if (h.powers.mega > 0) {
+        sfx(world, 'acorn_hit');
+        for (let i = 0; i < 3; i++) spark(world, a.x, a.y, 'star');
+      } else hurt(world);
     }
   }
   world.acorns = world.acorns.filter((a) => a.alive);
+}
+
+/** Tennis balls fly straight, stun squirrels, pop acorns and hit the boss. */
+function stepBalls(world: World, dt: number) {
+  const b = world.boss;
+  for (const ball of world.balls) {
+    if (!ball.alive) continue;
+    ball.t += dt;
+    ball.x += ball.vx * dt;
+    if (ball.t > POWER.ballLife) ball.alive = false;
+    for (const e of world.enemies) {
+      if (e.state !== 'active' || e.type === 'vacuum') continue;
+      if (Math.abs(e.x - ball.x) < e.w / 2 + 9 && ball.y > e.y - 6 && ball.y < e.y + e.h + 6) {
+        ball.alive = false;
+        if (e.type === 'cat') {
+          e.state = 'fled';
+          e.vx = 260;
+          e.vy = 300;
+          e.pop = 0.18;
+          sfx(world, 'cat_hiss');
+        } else if (e.type === 'blocks') {
+          e.state = 'stunned';
+          e.vx = 220;
+          e.vy = 320;
+          e.pop = 0.18;
+        } else stun(world, e, 360, 380);
+        impact(world, 'bark_hit', 0.7);
+        break;
+      }
+    }
+    if (!ball.alive) continue;
+    for (const a of world.acorns) {
+      if (!a.alive) continue;
+      if (Math.abs(a.x - ball.x) < 18 && Math.abs(a.y - ball.y) < 24) {
+        a.alive = false;
+        ball.alive = false;
+        sfx(world, 'acorn_hit');
+        for (let i = 0; i < 4; i++) spark(world, a.x, a.y, 'star');
+        break;
+      }
+    }
+    if (!ball.alive) continue;
+    if (b && world.phase === 'boss' && b.phase === 'fight' && Math.abs(ball.x - b.x) < 50 && ball.y > b.y + 10 && ball.y < b.y + 130) {
+      ball.alive = false;
+      hitBoss(world);
+    }
+  }
+  world.balls = world.balls.filter((x) => x.alive);
 }
 
 /* ------------------------------------------------------------------ */
@@ -946,7 +1094,7 @@ function collectPickups(world: World, dt: number) {
     if (Math.abs(p.x - h.x) < 34 && p.y + 10 > h.y - 6 && p.y < h.y + HERO_BOX.h + 10) {
       p.taken = true;
       if (p.kind === 'bone') {
-        world.bones += 1;
+        world.bones += h.powers.turbo > 0 ? 2 : 1;
         sfx(world, 'bone');
         haptic(world, 'selection');
       } else if (p.kind === 'bone_gold') {
@@ -955,9 +1103,10 @@ function collectPickups(world: World, dt: number) {
         haptic(world, 'success');
         for (let i = 0; i < 8; i++) spark(world, p.x, p.y, 'star');
       } else {
-        world.bones += 5;
+        // A present: one of the four powers, at random.
         sfx(world, 'bone_gold');
         for (let i = 0; i < 16; i++) confetti(world, p.x, p.y + 20);
+        grantPower(world, POWER_KINDS[Math.floor(world.rng() * POWER_KINDS.length)]);
       }
     }
   }
@@ -1124,4 +1273,4 @@ export function drainEvents(world: World): GameEvent[] {
   return out;
 }
 
-export type { Acorn, Boss, Particle };
+export type { Acorn, Ball, Boss, Particle };

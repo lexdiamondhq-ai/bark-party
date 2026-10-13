@@ -29,6 +29,7 @@ const hero = (over: Partial<Hero> = {}): Hero => ({
   blocked: false,
   restBlend: 0,
   pose: 'run',
+  powers: { mega: 0, turbo: 0, ball: 0, megaAge: 0, bubble: 0 },
   ...over,
 });
 

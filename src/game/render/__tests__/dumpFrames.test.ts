@@ -37,6 +37,32 @@ const CLIP = !!process.env.DUMP_CLIP;
   writeFileSync(OUT!, JSON.stringify({ k, frames }));
 });
 
+/** Set DUMP_POWER=1 to dump a 60 fps clip: Mega Pup crushing squirrels, then Ball Mouth at a thrower. */
+const POWERCLIP = !!process.env.DUMP_POWER;
+
+(OUT && POWERCLIP ? it : it.skip)('dumps a power clip', () => {
+  const level = { ...CHAPTER_1, floorSegments: [[-600, 20000]] as [number, number][], platforms: [], enemies: [{ type: 'runner' as const, x: 700, speed: 0 }, { type: 'runner' as const, x: 1000, speed: 0 }, { type: 'thrower' as const, x: 2100, every: 0.9 }], pickups: [{ kind: 'present' as const, x: 300, y: 18 }], cages: [], checkpoints: [], callouts: [], decor: [{ sprite: 'rug' as const, x: 500 }, { sprite: 'potted_plant' as const, x: 1500 }], boss: undefined };
+  const w = createWorld(level, 640, 3);
+  w.followers.push('husky');
+  const k = 1.5;
+  const setup = { atlas: atlas as unknown as AtlasData, background: null, k, screenW: 640 * k, screenH: 360 * k };
+  const frames: { label: string; heroX: number; heroY: number; camX: number; ops: number[] }[] = [];
+  const dump = () => frames.push({ label: '', heroX: w.hero.x, heroY: w.hero.y, camX: w.camX, ops: buildFrame(w, setup).data });
+  for (let i = 0; i < 20; i++) stepWorld(w, NO_INPUT, STEP);
+  // Force the present to be Mega Pup for the clip, then Ball Mouth once it wears off.
+  let f = 0;
+  while (f < 330) {
+    const h = w.hero;
+    if (f === 25) h.powers = { ...h.powers, mega: 3.2, megaAge: 0 };
+    if (f === 230) h.powers = { ...h.powers, ball: 6 };
+    const bark = f === 250 || f === 290;
+    stepWorld(w, bark ? { ...NO_INPUT, barkPressed: true } : NO_INPUT, STEP);
+    dump();
+    f++;
+  }
+  writeFileSync(OUT!, JSON.stringify({ k, frames }));
+});
+
 /** Set DUMP_FEEL=1 to dump the slide, zoomies, stomp and bark moments every 50 ms. */
 const FEEL = !!process.env.DUMP_FEEL;
 
@@ -68,7 +94,7 @@ const FEEL = !!process.env.DUMP_FEEL;
   writeFileSync(OUT!, JSON.stringify({ k, frames }));
 });
 
-(OUT && !CLIP && !FEEL ? it : it.skip)('dumps frames', () => {
+(OUT && !CLIP && !FEEL && !POWERCLIP ? it : it.skip)('dumps frames', () => {
   const flat = { ...CHAPTER_1, floorSegments: [[-600, 20000]] as [number, number][], platforms: [{ sprite: 'cardboard_box' as const, x: 2200, solid: true }], enemies: [], pickups: [], cages: [], checkpoints: [], callouts: [], decor: [], boss: undefined };
   const w = createWorld(flat, 640);
   const k = 2;

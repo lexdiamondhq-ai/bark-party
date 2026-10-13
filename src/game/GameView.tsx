@@ -28,13 +28,13 @@ import { colors, fonts, springs } from '../theme/tokens';
 import { initAudio, pauseMusic, playMusic, playSfx, preloadSfx, isMuted, setMuted } from './audio';
 import { COACH_CHEER, DOGS, HUD, ROOMS, ROOM_SIZE } from './art';
 import { NO_BOOSTS, type RunBoosts } from '../engine/progress';
-import { STEP, VIEW_H } from './constants';
+import { POWER, STEP, VIEW_H } from './constants';
 import type { CoachId, LevelDef } from './level/types';
 import { GameCanvas } from './render/GameCanvas';
 import { ATLAS_PAGES } from './render/atlasImages';
 import atlas from './render/atlas.json';
 import { buildFrame, OpList, type AtlasData, type PupProbe } from './render/buildFrame';
-import { NO_INPUT, type GameEvent, type Input } from './sim/types';
+import { NO_INPUT, type GameEvent, type Input, type PowerKind } from './sim/types';
 import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, setReduceMotion, snapPrev, stepWorld, type LevelResult } from './sim/world';
 import type { DogId } from './sprites';
 import { BOSS_NAME, DOG_NAMES } from './story';
@@ -95,6 +95,37 @@ type Props = {
 
 type Callout = { key: number; coach?: CoachId; dog?: DogId; text: string };
 
+const POWER_NAMES: Record<PowerKind, string> = { mega: 'Mega Pup', turbo: 'Turbo', ball: 'Ball Mouth', bubble: 'Bubble' };
+const POWER_TIPS: Record<PowerKind, string> = {
+  mega: 'Run right through them!',
+  turbo: 'Bones count double. Go go go!',
+  ball: 'BARK fires tennis balls!',
+  bubble: 'One free hit.',
+};
+const POWER_ICON: Record<PowerKind, number> = {
+  mega: require('../../assets/game/sprites/power_mega.png'),
+  turbo: require('../../assets/game/sprites/power_turbo.png'),
+  ball: require('../../assets/game/sprites/power_ball.png'),
+  bubble: require('../../assets/game/sprites/power_bubble.png'),
+};
+const POWER_MAX: Record<'mega' | 'turbo' | 'ball', number> = { mega: POWER.megaTime, turbo: POWER.turboTime, ball: POWER.ballTime };
+
+/** A live power on the HUD: its sticker, and a bar that drains as it runs out. */
+function PowerChip({ kind, left, max }: { kind: PowerKind; left: number; max: number }) {
+  return (
+    <Animated.View entering={ZoomIn.springify().damping(12)} exiting={FadeOut.duration(200)} style={styles.power}>
+      <Image source={POWER_ICON[kind]} style={styles.powerIcon} />
+      {kind === 'bubble' ? (
+        <Text style={styles.powerCount}>x{left}</Text>
+      ) : (
+        <View style={styles.powerBar}>
+          <View style={[styles.powerFill, { width: `${Math.max(0, Math.min(100, (left / max) * 100))}%` }]} />
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
 /** The run from the player's side: a count-in, then running, with pauses, game over and the win. */
 type RunState = 'ready' | 'running' | 'paused' | 'gameover' | 'won';
 
@@ -123,6 +154,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const [boss, setBoss] = useState<{ hits: number; needed: number } | null>(null);
   const [banner, setBanner] = useState<{ key: number; text: string } | null>(null);
   const [state, setState] = useState<RunState>('ready');
+  const [powers, setPowers] = useState({ mega: 0, turbo: 0, ball: 0, bubble: 0 });
   const [countIn, setCountIn] = useState<'ready' | 'go' | null>('ready');
   const [muted, setMutedState] = useState(isMuted());
   const setRun = useCallback((s: RunState) => {
@@ -200,6 +232,13 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
           case 'hurt':
             setHearts(Math.max(0, e.hearts));
             break;
+          case 'power':
+            showBanner(POWER_NAMES[e.kind].toUpperCase() + '!');
+            if (e.kind !== 'bubble') showCallout({ coach: 'leo', text: POWER_TIPS[e.kind] }, 2200);
+            break;
+          case 'bubble_pop':
+            showBanner('POP!');
+            break;
           case 'rescue':
             setFriends((f) => [...f, e.dog]);
             showCallout({ dog: e.dog, text: `${DOG_NAMES[e.dog]} is free! Woof!` }, 2200);
@@ -244,6 +283,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
     let last = 0;
     let acc = 0;
     let lastBones = -1;
+    let powerTick = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (!last) last = now;
@@ -292,6 +332,12 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       }
       const events = drainEvents(world);
       if (events.length) handleEvents(events);
+      // The power chips tick at a tenth of the frame rate; they only need to drain visibly.
+      const pw = world.hero.powers;
+      powerTick = (powerTick + 1) % 6;
+      if (powerTick === 0) {
+        setPowers((old) => (old.mega === pw.mega && old.turbo === pw.turbo && old.ball === pw.ball && old.bubble === pw.bubble ? old : { mega: pw.mega, turbo: pw.turbo, ball: pw.ball, bubble: pw.bubble }));
+      }
       if (world.bones !== lastBones) {
         if (lastBones >= 0) boneBump.set(withSequence(withTiming(1.3, { duration: 60 }), withSpring(1, springs.bouncy)));
         lastBones = world.bones;
@@ -421,6 +467,12 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
           {friends.map((d) => (
             <Image key={d} source={DOGS[d]} style={styles.friend} />
           ))}
+        </View>
+        <View style={styles.hudRow} pointerEvents="none">
+          {powers.mega > 0 && <PowerChip kind="mega" left={powers.mega} max={POWER_MAX.mega + boosts.megaBonus} />}
+          {powers.turbo > 0 && <PowerChip kind="turbo" left={powers.turbo} max={POWER_MAX.turbo + boosts.turboBonus} />}
+          {powers.ball > 0 && <PowerChip kind="ball" left={powers.ball} max={POWER_MAX.ball} />}
+          {powers.bubble > 0 && <PowerChip kind="bubble" left={powers.bubble} max={1} />}
         </View>
       </View>
 
@@ -558,6 +610,11 @@ const styles = StyleSheet.create({
   boneIcon: { width: 28, height: 16, resizeMode: 'contain' },
   chipText: { fontFamily: fonts.display, fontSize: 24, color: colors.cocoa },
   friend: { width: 34, height: 34, resizeMode: 'contain' },
+  power: { alignItems: 'center', gap: 2 },
+  powerIcon: { width: 36, height: 36, resizeMode: 'contain' },
+  powerBar: { width: 36, height: 6, borderRadius: 3, borderWidth: 1.5, borderColor: colors.cocoa, backgroundColor: 'rgba(255,244,226,0.5)', overflow: 'hidden' },
+  powerFill: { height: '100%', backgroundColor: colors.kiwi },
+  powerCount: { fontFamily: fonts.display, fontSize: 14, color: colors.marshmallow, textShadowColor: colors.cocoa, textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 0 },
   bossBar: {
     position: 'absolute',
     alignSelf: 'center',

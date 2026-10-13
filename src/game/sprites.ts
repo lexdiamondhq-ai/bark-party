@@ -104,6 +104,14 @@ export const SPRITES = {
   dog_bowl: { w: 44, h: 20 },
   floor_kitchen: { w: 128, h: 40 },
 
+  // Power treats
+  tennis_ball: { w: 18, h: 18 },
+  bubble: { w: 64, h: 64 },
+  power_mega: { w: 32, h: 32 },
+  power_turbo: { w: 32, h: 32 },
+  power_ball: { w: 32, h: 32 },
+  power_bubble: { w: 32, h: 32 },
+
   // Effects and UI
   dust_0: { w: 24, h: 16 },
   dust_1: { w: 24, h: 16 },

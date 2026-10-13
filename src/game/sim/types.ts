@@ -19,6 +19,29 @@ export const NO_INPUT: Input = { jumpPressed: false, jumpHeld: false, slidePress
 
 export type HeroPose = 'run' | 'jump' | 'fall' | 'slide' | 'bark' | 'hurt' | 'idle' | 'cheer';
 
+/** Power treats from presents: each is loud, visible and over in seconds. */
+export type PowerKind = 'mega' | 'turbo' | 'ball' | 'bubble';
+
+export interface Powers {
+  /** Seconds left of each timed power (0 = off). */
+  mega: number;
+  turbo: number;
+  ball: number;
+  /** Seconds since Mega Pup started, for the grow-in. */
+  megaAge: number;
+  /** Bubbles held; each eats one hit. */
+  bubble: number;
+}
+
+/** A tennis ball fired from the pup's mouth. */
+export interface Ball extends Prev {
+  x: number;
+  y: number;
+  vx: number;
+  t: number;
+  alive: boolean;
+}
+
 export interface Hero {
   x: number;
   /** Feet height above the floor. */
@@ -51,6 +74,7 @@ export interface Hero {
   /** 0..1, eases up while blocked so the legs settle onto all four paws instead of cutting. */
   restBlend: number;
   pose: HeroPose;
+  powers: Powers;
 }
 
 /** Where the hero and camera were at the previous step, so a frame between steps can be drawn in between. */
@@ -71,6 +95,8 @@ export interface RenderPrev {
   invuln: number;
   shakeX: number;
   shakeY: number;
+  mega: number;
+  megaAge: number;
 }
 
 export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';
@@ -192,6 +218,8 @@ export type GameEvent =
   | { type: 'callout'; coach: CoachId; text: string }
   | { type: 'checkpoint' }
   | { type: 'rescue'; dog: DogId }
+  | { type: 'power'; kind: PowerKind; seconds: number }
+  | { type: 'bubble_pop' }
   | { type: 'hurt'; hearts: number }
   | { type: 'boss_start' }
   | { type: 'boss_hit'; hits: number; needed: number }
@@ -228,6 +256,7 @@ export interface World {
   floor: [number, number][];
   enemies: Enemy[];
   acorns: Acorn[];
+  balls: Ball[];
   pickups: Pickup[];
   cages: Cage[];
   checkpoints: { x: number; reached: boolean }[];

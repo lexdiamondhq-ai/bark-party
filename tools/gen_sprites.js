@@ -948,6 +948,47 @@ function floorKitchen() {
   return g;
 }
 
+// ---------------------------------------------------------------- power treats
+function tennisBall(s = 1) {
+  let g = '';
+  g += blob(Ci(9, 9, 7.6), '#D9F55A', '#B5D63A', { O: 1.3, so: 1.2, off: [1, -1] });
+  g += `<path d="M4.4 4.2 Q9 9 4.4 13.8 M13.6 4.2 Q9 9 13.6 13.8" fill="none" stroke="${WH}" stroke-opacity="0.9" stroke-width="1.3" stroke-linecap="round"/>`;
+  g += `<ellipse cx="6.4" cy="6" rx="1.6" ry="1" fill="${WH}" fill-opacity="0.7" transform="rotate(-30 6.4 6)"/>`;
+  return g;
+}
+
+function bubble() {
+  let g = '';
+  g += `<circle cx="32" cy="32" r="29" fill="#9ED9FF" fill-opacity="0.22" stroke="#DFF4FF" stroke-opacity="0.9" stroke-width="2.4"/>`;
+  g += `<circle cx="32" cy="32" r="29" fill="none" stroke="${C.sky}" stroke-opacity="0.5" stroke-width="1"/>`;
+  g += `<path d="M14 24 Q18 13 29 10" fill="none" stroke="${WH}" stroke-opacity="0.85" stroke-width="3" stroke-linecap="round"/>`;
+  g += `<path d="M48 46 Q45 51 40 53" fill="none" stroke="${WH}" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round"/>`;
+  return g;
+}
+
+// Round icons on a gold sticker, for the HUD chip and the present pop.
+function powerIcon(inner) {
+  let g = blob(Ci(16, 16, 14), C.gold, C.goldS, { O: 1.6, so: 1.4, off: [1.2, -1.4] });
+  return g + inner;
+}
+function iconMega() {
+  // The pup silhouette (round head, body) with an arrow up.
+  let g = blob([Ci(13, 15, 5.2), E(14, 22, 6.8, 4.2)], C.cream, C.creamS, { O: 1, so: 0.6 });
+  g += blob(P('M10 12 L13 9 L16 12 Z'), C.mask, null, { O: 0.8 });
+  g += strokes(['M23 20 L23 9', 'M19.5 12.5 L23 9 L26.5 12.5'], 2.2, OUT, { O: 0 });
+  return powerIcon(g);
+}
+function iconTurbo() {
+  let g = bone(28, 16, false, 1.2).replace(/<svg[^>]*>|<\/svg>/g, '');
+  return powerIcon(`<g transform="translate(5 10) scale(0.8)">${g}</g><path d="M3 9 L10 9 M2 13 L8 13 M4 17 L9 17" stroke="${OUT}" stroke-width="1.6" stroke-linecap="round"/>`);
+}
+function iconBall() {
+  return powerIcon(`<g transform="translate(7 7)">${tennisBall()}</g>`);
+}
+function iconBubble() {
+  return powerIcon(`<circle cx="16" cy="16" r="9" fill="#9ED9FF" fill-opacity="0.5" stroke="${OUT}" stroke-width="1.4"/><path d="M10 13 Q11.5 9.5 15 8.5" fill="none" stroke="${WH}" stroke-width="2" stroke-linecap="round"/>`);
+}
+
 // ---------------------------------------------------------------- registry
 const S = {};
 const add = (name, W, H, O, fn, top) => (S[name] = { W, H, O, fn, top });
@@ -1005,6 +1046,12 @@ add('stool', 56, 60, 2, () => stool(58), 58);
 add('fridge', 90, 160, 2.4, () => fridge(158), 158);
 add('dog_bowl', 44, 20, 1.6, () => dogBowl());
 add('floor_kitchen', 128, 40, 1.6, () => floorKitchen(), 40);
+add('tennis_ball', 18, 18, 1.3, () => tennisBall());
+add('bubble', 64, 64, 0, () => bubble());
+add('power_mega', 32, 32, 1.6, () => iconMega());
+add('power_turbo', 32, 32, 1.6, () => iconTurbo());
+add('power_ball', 32, 32, 1.6, () => iconBall());
+add('power_bubble', 32, 32, 1.6, () => iconBubble());
 
 const only = process.argv.slice(2);
 const dir = path.resolve(__dirname, '..', 'art', 'svg');

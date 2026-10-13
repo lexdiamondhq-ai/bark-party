@@ -43,5 +43,18 @@ export const HERO_BOX = { w: 40, h: 54, slideH: 26 } as const;
 
 export const MAX_HEARTS = 3;
 
+/** Power treats: how long each lasts, how big and fast the pup gets, how the balls fly. */
+export const POWER = {
+  megaTime: 8,
+  megaScale: 1.6,
+  turboTime: 6,
+  turboSpeed: 1.5,
+  ballTime: 10,
+  ballSpeed: 720,
+  ballLife: 1.1,
+  /** Seconds the grow-in and shrink-out of Mega Pup take. */
+  megaRamp: 0.3,
+} as const;
+
 /** Seconds a freed pup takes to jump from its crate into the wagon. */
 export const BOARD_TIME = 0.55;

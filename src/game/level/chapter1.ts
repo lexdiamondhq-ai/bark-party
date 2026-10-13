@@ -81,6 +81,9 @@ export const CHAPTER_1: LevelDef = {
     ...arc(3290, 4, 55, 30, 110),
     ...bones(3990, 3, 34, 190),
     { kind: 'present', x: 4200, y: 260 },
+    // Presents in risky spots: over the second pit, and right past the cat's chair.
+    { kind: 'present', x: 1580, y: 150 },
+    { kind: 'present', x: 5560, y: 160 },
     ...arc(4700, 4, 60, 30, 120),
     ...bones(5180, 2, 40, 70),
     { kind: 'bone_gold', x: 5480, y: 120 },

@@ -27,6 +27,10 @@ const TREAT_ART: Record<UpgradeId, number> = {
   bark: require('../../assets/game/sprites/bark_burst.png'),
   magnet: require('../../assets/game/sprites/bone_gold.png'),
   jump: require('../../assets/game/sprites/star.png'),
+  mega: require('../../assets/game/sprites/power_mega.png'),
+  turbo: require('../../assets/game/sprites/power_turbo.png'),
+  twin: require('../../assets/game/sprites/power_ball.png'),
+  bubble: require('../../assets/game/sprites/power_bubble.png'),
 };
 
 /** Rooms still being drawn show at the end of the row, so the party has somewhere to grow. */
@@ -236,13 +240,13 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: fonts.display, fontSize: 24, color: colors.cocoa },
   decorate: { backgroundColor: colors.bubblegum, borderColor: colors.cocoa, borderWidth: 2.5, borderBottomWidth: 5, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 6 },
   decorateText: { fontFamily: fonts.display, fontSize: 22, color: colors.cocoa },
-  sheet: { position: 'absolute', left: '8%', right: '8%', bottom: 14, backgroundColor: colors.marshmallow, borderColor: colors.cocoa, borderWidth: 3, borderBottomWidth: 7, borderRadius: 24, padding: 14, gap: 10 },
+  sheet: { position: 'absolute', left: '6%', right: '6%', bottom: 10, backgroundColor: colors.marshmallow, borderColor: colors.cocoa, borderWidth: 3, borderBottomWidth: 7, borderRadius: 24, padding: 14, gap: 10 },
   sheetTabs: { flexDirection: 'row', gap: 8 },
   tab: { borderRadius: 14, borderWidth: 2.5, borderColor: colors.cocoa, paddingHorizontal: 14, paddingVertical: 5, backgroundColor: '#FFE9C2' },
   tabOn: { backgroundColor: colors.biscuitGold, borderBottomWidth: 5 },
   tabText: { fontFamily: fonts.display, fontSize: 20, color: colors.cocoa },
-  gearRow: { flexDirection: 'row', gap: 10 },
-  gear: { flex: 1, alignItems: 'center', gap: 3, backgroundColor: '#FFE9C2', borderColor: colors.cocoa, borderWidth: 2, borderRadius: 16, paddingVertical: 8, paddingHorizontal: 6 },
+  gearRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  gear: { flexBasis: '23%', flexGrow: 1, alignItems: 'center', gap: 3, backgroundColor: '#FFE9C2', borderColor: colors.cocoa, borderWidth: 2, borderRadius: 16, paddingVertical: 8, paddingHorizontal: 6 },
   gearOwned: { backgroundColor: '#DFF5D0' },
   gearOff: { opacity: 0.45 },
   gearArt: { width: 40, height: 40 },

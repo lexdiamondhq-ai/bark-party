@@ -17,7 +17,7 @@ export interface ChapterRecord {
   runs: number;
 }
 
-export type UpgradeId = 'heart' | 'bark' | 'magnet' | 'jump';
+export type UpgradeId = 'heart' | 'bark' | 'magnet' | 'jump' | 'mega' | 'turbo' | 'twin' | 'bubble';
 
 export interface Upgrade {
   id: UpgradeId;
@@ -33,6 +33,10 @@ export const UPGRADES: Upgrade[] = [
   { id: 'bark', name: 'Loud Bark', blurb: 'The bark reaches farther.', costs: [30, 70] },
   { id: 'magnet', name: 'Bone Sniffer', blurb: 'Bones nearby come to you.', costs: [35, 80] },
   { id: 'jump', name: 'Spring Legs', blurb: 'The double jump goes higher.', costs: [45] },
+  { id: 'mega', name: 'Mega Longer', blurb: 'Mega Pup lasts longer.', costs: [50, 110] },
+  { id: 'turbo', name: 'Turbo Longer', blurb: 'Turbo lasts longer.', costs: [50, 110] },
+  { id: 'twin', name: 'Twin Balls', blurb: 'Ball Mouth fires two at once.', costs: [90] },
+  { id: 'bubble', name: 'Bubble Start', blurb: 'Every run starts inside a Bubble.', costs: [120] },
 ];
 
 export type GearId = 'balloons' | 'presents' | 'arch' | 'cake';
@@ -167,6 +171,13 @@ export interface RunBoosts {
   /** Pull radius for bones, 0 when off. */
   magnetRange: number;
   doubleJumpBonus: number;
+  /** Extra seconds on Mega Pup and Turbo. */
+  megaBonus: number;
+  turboBonus: number;
+  /** Ball Mouth fires this many balls per bark. */
+  balls: number;
+  /** Start the run inside a Bubble. */
+  startBubble: boolean;
 }
 
 export function runBoosts(p: Progress): RunBoosts {
@@ -175,10 +186,14 @@ export function runBoosts(p: Progress): RunBoosts {
     barkRangeBonus: upgradeLevel(p, 'bark') * 50,
     magnetRange: [0, 70, 120][upgradeLevel(p, 'magnet')] ?? 120,
     doubleJumpBonus: upgradeLevel(p, 'jump') * 90,
+    megaBonus: upgradeLevel(p, 'mega') * 3,
+    turboBonus: upgradeLevel(p, 'turbo') * 3,
+    balls: 1 + upgradeLevel(p, 'twin'),
+    startBubble: upgradeLevel(p, 'bubble') > 0,
   };
 }
 
-export const NO_BOOSTS: RunBoosts = { extraHearts: 0, barkRangeBonus: 0, magnetRange: 0, doubleJumpBonus: 0 };
+export const NO_BOOSTS: RunBoosts = { extraHearts: 0, barkRangeBonus: 0, magnetRange: 0, doubleJumpBonus: 0, megaBonus: 0, turboBonus: 0, balls: 1, startBubble: false };
 
 /** Reads saved data defensively: anything missing or malformed falls back to empty. */
 export function parseProgress(raw: unknown): Progress {

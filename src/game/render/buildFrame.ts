@@ -5,9 +5,9 @@
 // lists line up op for op, so the canvas can draw any moment in between, which is what keeps a
 // 120 Hz screen moving every frame while the simulation steps at 60.
 
-import { FLOOR_SCREEN_Y, STEP } from '../constants';
+import { FLOOR_SCREEN_Y, POWER, STEP } from '../constants';
 import { SPRITES, dogSprite, type SpriteName } from '../sprites';
-import { BOSS_LEAD } from '../sim/world';
+import { BOSS_LEAD, heroScale } from '../sim/world';
 import type { World } from '../sim/types';
 import { followerDraws } from './followers';
 import { TUCK_DOWN, TUCK_UP, gallopBody, puppetPose, type PoseInput } from './pupPose';
@@ -102,7 +102,7 @@ interface View {
   t: number;
   camX: number;
   camY: number;
-  hero: PoseInput & { x: number; y: number; stride: number; invuln: number };
+  hero: PoseInput & { x: number; y: number; stride: number; invuln: number; big: number; bubble: number; turbo: number };
   /** Position of a moving thing at this moment. */
   pos: (x: number, px: number | undefined) => number;
   /** A timer that grew by one step: its value at this moment. */
@@ -116,7 +116,7 @@ function viewNow(world: World): View {
     t: world.t,
     camX: world.camX,
     camY: world.camY,
-    hero: h,
+    hero: { ...h, big: heroScale(h), bubble: h.powers.bubble, turbo: h.powers.turbo },
     pos: (x) => x,
     timer: (v) => v,
   };
@@ -141,6 +141,9 @@ function viewBefore(world: World): View {
       boost: p.boost,
       landImpact: p.landImpact,
       invuln: p.invuln,
+      big: p.mega <= 0 ? 1 : 1 + (POWER.megaScale - 1) * Math.min(1, p.megaAge / POWER.megaRamp, p.mega / POWER.megaRamp),
+      bubble: world.hero.powers.bubble,
+      turbo: Math.max(0, world.hero.powers.turbo + STEP),
     },
     pos: (x, px) => px ?? x,
     timer: (v) => v - STEP,
@@ -309,6 +312,13 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     sprite(a.golden ? 'acorn_golden' : 'acorn', v.pos(a.x, a.px), v.pos(a.y, a.py) - 9, { rot: spin, scale: a.golden ? 1.4 : 1 });
   }
 
+  // Tennis balls from Ball Mouth.
+  for (const ball of world.balls) {
+    if (!ball.alive || !visible(ball.x)) continue;
+    const bt = Math.max(0, v.timer(ball.t));
+    sprite('tennis_ball', v.pos(ball.x, ball.px), v.pos(ball.y, ball.py) - 9, { rot: bt * 18, scale: 1.1 });
+  }
+
   // The wagon with the rescued friends rides behind the dog.
   const friends = followerDraws(world, { t, ago: v.ago, heroX: v.hero.x, heroY: v.hero.y });
   for (const r of friends.ropes) {
@@ -338,7 +348,7 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   if (b && b.phase === 'gone') sprite('cake', v.hero.x + BOSS_LEAD - 130, 0);
 
   // Zoomies: speed lines streak behind the dog.
-  const boost = v.hero.boost;
+  const boost = Math.max(v.hero.boost, v.hero.turbo > 0 ? 0.3 : 0);
   if (boost > 0) {
     const strength = Math.min(1, boost / 0.3);
     for (let i = 0; i < 4; i++) {
@@ -383,8 +393,8 @@ interface PupLayer {
   lift?: number;
 }
 
-function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha: number; sxScale: number; syScale: number }, layers: PupLayer[]) {
-  const H = SPRITES.pup_base.h * o.syScale;
+function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha: number; sxScale: number; syScale: number; big: number }, layers: PupLayer[]) {
+  const H = SPRITES.pup_base.h * o.syScale * o.big;
   const cos = Math.cos(o.rot);
   const sin = Math.sin(o.rot);
   // Place a piece by its box in canvas px: squash about the paws, then turn about the pup's middle.
@@ -392,12 +402,12 @@ function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha:
     const alpha = o.alpha * l.alpha;
     if (alpha <= 0.01) continue;
     const box = l.box;
-    const bx = ((box[0] + box[2]) / 2 - PUP_CANVAS.w / 2) * PUP_S * o.sxScale;
-    const by = (PUP_CANVAS.h - (box[1] + box[3]) / 2) * PUP_S * o.syScale - H / 2;
-    const w = (box[2] - box[0]) * PUP_S * o.sxScale;
-    const h = (box[3] - box[1]) * PUP_S * o.syScale;
+    const bx = ((box[0] + box[2]) / 2 - PUP_CANVAS.w / 2) * PUP_S * o.sxScale * o.big;
+    const by = (PUP_CANVAS.h - (box[1] + box[3]) / 2) * PUP_S * o.syScale * o.big - H / 2;
+    const w = (box[2] - box[0]) * PUP_S * o.sxScale * o.big;
+    const h = (box[3] - box[1]) * PUP_S * o.syScale * o.big;
     // Screen rotation is clockwise for positive angles; in world space (y up) that is the inverse turn.
-    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos + (l.lift ?? 0), w, h, o.rot, alpha);
+    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos + (l.lift ?? 0) * o.big, w, h, o.rot, alpha);
   }
 }
 
@@ -477,8 +487,14 @@ function drawHero(world: World, v: View, sprite: SpriteFn, part: PartFn, probe?:
     default:
       break;
   }
+  const big = h.big;
+  if (h.bubble > 0) {
+    // The Bubble floats around the pup, breathing a little.
+    const puff = 1 + Math.sin(t * 5) * 0.03;
+    sprite('bubble', h.x + 4, h.y - 6 * big, { scale: 1.35 * big * puff, alpha: 0.9 });
+  }
   if (name !== 'pup_walk') {
-    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale });
+    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale, scale: big });
     return;
   }
   // Running and airborne: the real Dog Better puppet, legs sweeping with the bound, tail always wagging.
@@ -488,5 +504,5 @@ function drawHero(world: World, v: View, sprite: SpriteFn, part: PartFn, probe?:
     const trail = -Math.max(0, -Math.cos(2 * Math.PI * body.phase)) * 0.9;
     for (const l of layers) if (l.box === LEGS_BOX) l.lift = trail;
   }
-  drawPuppet(part, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale }, layers);
+  drawPuppet(part, h.x, h.y + lift * big, { rot, alpha: flicker, sxScale, syScale, big }, layers);
 }
