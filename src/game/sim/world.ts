@@ -772,7 +772,8 @@ function stepEnemies(world: World, dt: number) {
             e.throwing = 0.3;
             throwAcorn(world, e.x - 16, e.y + 34, h, false);
           }
-        } else if (dx > 40 && dx < Math.min(WARN.throwRange, world.viewW * (1 - HERO_SCREEN_X) - 10)) {
+        } else if (dx > 40 && e.x - e.w / 2 < world.camX + world.viewW - 10) {
+          // In view (camera lead included), so the wind-up is always seen from its first frame.
           e.cooldown -= dt;
           // One acorn at a time: never throw while a live one is still ahead of the pup.
           const busy = world.acorns.some((a) => a.alive && !a.reflected && a.x - h.x > -20 && a.x - h.x < WARN.acornSpacing);
@@ -917,10 +918,10 @@ function stepAcorns(world: World, dt: number) {
       a.y += a.vy * dt;
       a.vy -= PHYS.gravity * 0.5 * dt;
       if (a.y < 0 && !a.reflected) {
-        // Bounce once, then roll away.
-        a.y = 0;
-        a.rolling = true;
-        a.vx = Math.min(a.vx, -60);
+        // A lobbed acorn pops where its landing mark said it would; dodging the drop is the whole answer.
+        a.alive = false;
+        dust(world, a.x, 0, 2);
+        continue;
       }
     }
     if (a.y < -200 || a.x < h.x - world.viewW || a.x > h.x + world.viewW * 2) a.alive = false;
@@ -935,8 +936,9 @@ function stepAcorns(world: World, dt: number) {
       }
       continue;
     }
-    // Hit the dog? Mega Pup just bats it away.
+    // Hit the dog? A slide always goes under a lobbed acorn (the tips promise it); Mega Pup just bats it away.
     const big = heroScale(h);
+    if (h.sliding > 0 && !a.rolling) continue;
     if (Math.abs(a.x - h.x) < (HERO_BOX.w / 2) * big + 6 && a.y > h.y - 4 && a.y < h.y + heroH * big) {
       a.alive = false;
       if (h.powers.mega > 0) {

@@ -134,7 +134,7 @@ describe('enemies', () => {
   it('sliding under a thrown acorn avoids it', () => {
     const w = createWorld(flat({ enemies: [{ type: 'thrower', x: 700, every: 99 }] }), 640);
     let slid = false;
-    run(w, 2, (ww) => {
+    run(w, 3.5, (ww) => {
       const a = ww.acorns[0];
       if (a && !slid && a.x - ww.hero.x < 120) {
         slid = true;
