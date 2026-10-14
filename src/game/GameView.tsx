@@ -198,14 +198,16 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
     };
   }, [setRun]);
 
+  // Callouts and banners are siblings, so their keys come from separate counters, never the clock.
+  const keys = useRef({ callout: 0, banner: 0 });
   const calloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showCallout = useCallback((c: Omit<Callout, 'key'>, ms = 2800) => {
-    setCallout({ ...c, key: Date.now() });
+    setCallout({ ...c, key: ++keys.current.callout });
     if (calloutTimer.current) clearTimeout(calloutTimer.current);
     calloutTimer.current = setTimeout(() => setCallout(null), ms);
   }, []);
   const showBanner = useCallback((text: string) => {
-    setBanner({ key: Date.now(), text });
+    setBanner({ key: ++keys.current.banner, text });
     setTimeout(() => setBanner(null), 1800);
   }, []);
 
@@ -520,7 +522,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
 
       {callout && (
         <Animated.View
-          key={callout.key}
+          key={`callout-${callout.key}`}
           entering={SlideInLeft.springify().damping(16)}
           exiting={SlideOutLeft.duration(200)}
           pointerEvents="none"
@@ -538,13 +540,13 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       )}
 
       {banner && (
-        <Animated.View key={banner.key} entering={ZoomIn.springify().damping(10)} exiting={FadeOut} pointerEvents="none" style={styles.bannerWrap}>
+        <Animated.View key={`banner-${banner.key}`} entering={ZoomIn.springify().damping(10)} exiting={FadeOut} pointerEvents="none" style={styles.bannerWrap}>
           <Text style={styles.banner}>{banner.text}</Text>
         </Animated.View>
       )}
 
       {countIn && (
-        <Animated.View key={countIn} entering={ZoomIn.springify().damping(9)} exiting={FadeOut.duration(150)} pointerEvents="none" style={styles.bannerWrap}>
+        <Animated.View key={`count-${countIn}`} entering={ZoomIn.springify().damping(9)} exiting={FadeOut.duration(150)} pointerEvents="none" style={styles.bannerWrap}>
           <Text style={[styles.banner, countIn === 'go' ? styles.go : null]}>{countIn === 'ready' ? 'Ready?' : 'GO!'}</Text>
         </Animated.View>
       )}
