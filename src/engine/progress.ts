@@ -64,6 +64,8 @@ export interface Progress {
   chapters: Record<string, ChapterRecord>;
   upgrades: Partial<Record<UpgradeId, number>>;
   gear: GearId[];
+  /** The tricks intro has been seen once. */
+  sawTricks: boolean;
 }
 
 export interface RunOutcome {
@@ -81,7 +83,7 @@ export interface RunOutcome {
 }
 
 export function emptyProgress(): Progress {
-  return { version: PROGRESS_VERSION, bones: 0, bonesEver: 0, chapters: {}, upgrades: {}, gear: [] };
+  return { version: PROGRESS_VERSION, bones: 0, bonesEver: 0, chapters: {}, upgrades: {}, gear: [], sawTricks: false };
 }
 
 export function hasGear(p: Progress, id: GearId): boolean {
@@ -225,5 +227,5 @@ export function parseProgress(raw: unknown): Progress {
     if (level > 0) upgrades[u.id] = Math.min(u.costs.length, Math.floor(level));
   }
   const gear = GEAR.map((g) => g.id).filter((id) => Array.isArray(r.gear) && (r.gear as unknown[]).includes(id));
-  return { version: PROGRESS_VERSION, bones: Math.floor(num(r.bones)), bonesEver: Math.floor(num(r.bonesEver)), chapters, upgrades, gear };
+  return { version: PROGRESS_VERSION, bones: Math.floor(num(r.bones)), bonesEver: Math.floor(num(r.bonesEver)), chapters, upgrades, gear, sawTricks: r.sawTricks === true };
 }

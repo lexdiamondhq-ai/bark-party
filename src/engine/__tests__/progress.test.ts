@@ -106,5 +106,6 @@ describe('loading saved data', () => {
   it('round-trips through JSON', () => {
     const p = buy(recordRun({ ...emptyProgress(), bones: 50 }, run()), 'bark');
     expect(parseProgress(JSON.parse(JSON.stringify(p)))).toEqual(p);
+    expect(parseProgress({ sawTricks: 'yes' }).sawTricks).toBe(false);
   });
 });

@@ -76,7 +76,9 @@ export default function Party() {
   };
   const run = (id: string) => {
     playSfx('bark');
-    if (chapterRecord(progress, id).stars === 0 && STORIES[id]) router.push({ pathname: '/story', params: { scene: `${id}_intro` } });
+    // The tricks come first, once; then the story the first time; then straight to the run.
+    if (!progress.sawTricks) router.push({ pathname: '/tricks', params: { then: id } });
+    else if (chapterRecord(progress, id).stars === 0 && STORIES[id]) router.push({ pathname: '/story', params: { scene: `${id}_intro` } });
     else router.push({ pathname: '/play', params: { chapter: id } });
   };
 
@@ -209,6 +211,9 @@ export default function Party() {
 
       <Pressable style={styles.back} onPress={() => router.navigate('/')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back to title">
         <Text style={styles.backText}>Title</Text>
+      </Pressable>
+      <Pressable style={[styles.back, { left: 92 }]} onPress={() => router.push('/tricks')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Tricks">
+        <Text style={styles.backText}>Tricks</Text>
       </Pressable>
     </View>
   );

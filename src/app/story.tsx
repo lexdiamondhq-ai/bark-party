@@ -153,34 +153,34 @@ function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'
   switch (actor.kind) {
     case 'coach':
       source = COACH_FULL[actor.id];
-      size = { width: 150, height: 300 };
+      size = { width: 170, height: 340 };
       break;
     case 'dog':
       source = DOGS[actor.id];
-      size = { width: 170, height: 170 };
+      size = { width: 190, height: 190 };
       flip = side === 'right';
       break;
     case 'pup':
       source = PUP[actor.pose];
-      size = { width: 230, height: 200 };
+      size = { width: 252, height: 220 };
       flip = side === 'right';
       break;
     case 'boss':
       source = STORY_SPRITES.boss;
-      size = { width: 230, height: 250 };
+      size = { width: 258, height: 280 };
       break;
     case 'gang':
       source = STORY_SPRITES.gang;
-      size = { width: 260, height: 220 };
+      size = { width: 290, height: 246 };
       flip = side === 'right';
       break;
     case 'cake':
       source = STORY_SPRITES.cake;
-      size = { width: 180, height: 170 };
+      size = { width: 200, height: 190 };
       break;
     case 'cage':
       source = STORY_SPRITES.cage;
-      size = { width: 200, height: 200 };
+      size = { width: 222, height: 222 };
       break;
   }
 
@@ -209,24 +209,24 @@ function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.velvetNight },
-  stage: { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: '8%', paddingBottom: 96 },
+  stage: { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: '6%', paddingBottom: 124 },
   side: { minWidth: 200, alignItems: 'center', justifyContent: 'flex-end' },
   actor: { alignItems: 'center', justifyContent: 'flex-end', transformOrigin: 'bottom' },
-  caged: { position: 'absolute', bottom: 24, width: 130, height: 130 },
+  caged: { position: 'absolute', bottom: 26, width: 144, height: 144 },
   box: {
     position: 'absolute',
-    left: '12%',
-    right: '12%',
-    bottom: 16,
+    left: '7%',
+    right: '7%',
+    bottom: 14,
     backgroundColor: colors.marshmallow,
     borderColor: colors.cocoa,
     borderWidth: 3,
     borderBottomWidth: 7,
     borderRadius: 22,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 14,
-    minHeight: 92,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 18,
+    minHeight: 112,
   },
   nameTag: {
     position: 'absolute',
@@ -239,9 +239,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 2,
   },
-  name: { fontFamily: fonts.bodyHeavy, fontSize: 16, color: colors.cocoa },
-  line: { fontFamily: fonts.bodyBold, fontSize: 20, lineHeight: 26, color: colors.cocoa },
-  more: { position: 'absolute', right: 16, bottom: 8, fontFamily: fonts.bodyHeavy, fontSize: 13, color: colors.cocoa, opacity: 0.6 },
+  name: { fontFamily: fonts.bodyHeavy, fontSize: 18, color: colors.cocoa },
+  line: { fontFamily: fonts.bodyBold, fontSize: 24, lineHeight: 31, color: colors.cocoa },
+  more: { position: 'absolute', right: 18, bottom: 10, fontFamily: fonts.bodyHeavy, fontSize: 14, color: colors.cocoa, opacity: 0.6 },
   skip: {
     position: 'absolute',
     top: 14,
