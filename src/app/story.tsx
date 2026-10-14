@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Image, ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Image, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -31,9 +31,26 @@ function sceneFor(scene: string): { panels: StoryPanel[]; next: { pathname: '/pl
 }
 
 const CPS = 48; // typewriter characters per second
+/** Room the stage leaves for the text card at the bottom, and the breathing room above the tallest head. */
+const CARD_SPACE = 124;
+const HEAD_ROOM = 10;
+
+/** Each actor's height as a share of the stage, and its width per unit of height (the art's own proportions). */
+const SHAPES: Record<Actor['kind'], { h: number; ratio: number }> = {
+  coach: { h: 0.96, ratio: 170 / 340 },
+  dog: { h: 0.62, ratio: 1 },
+  pup: { h: 0.7, ratio: 252 / 220 },
+  boss: { h: 0.9, ratio: 258 / 280 },
+  gang: { h: 0.8, ratio: 290 / 246 },
+  cake: { h: 0.62, ratio: 200 / 190 },
+  cage: { h: 0.74, ratio: 1 },
+};
 
 export default function Story() {
   const { scene = 'ch1_intro' } = useLocalSearchParams<{ scene?: string }>();
+  const { height } = useWindowDimensions();
+  // The actors are sized from the stage, so the tallest coach always fits between the top edge and the card.
+  const stageH = Math.max(150, height - CARD_SPACE - HEAD_ROOM);
   const def = sceneFor(scene);
   const [index, setIndex] = useState(0);
   // Whether the current line has fully typed, reported by the Typewriter so the screen itself never re-renders per character.
@@ -90,8 +107,8 @@ export default function Story() {
       </View>
       <Animated.View style={[StyleSheet.absoluteFill, shakeStyle]} pointerEvents="none">
         <View style={styles.stage}>
-          <View style={styles.side}>{panel.left && <ActorView key={`l${index}`} actor={panel.left} side="left" dark={panel.dark} />}</View>
-          <View style={styles.side}>{panel.right && <ActorView key={`r${index}`} actor={panel.right} side="right" dark={panel.dark} />}</View>
+          <View style={styles.side}>{panel.left && <ActorView key={`l${index}`} actor={panel.left} side="left" dark={panel.dark} stageH={stageH} />}</View>
+          <View style={styles.side}>{panel.right && <ActorView key={`r${index}`} actor={panel.right} side="right" dark={panel.dark} stageH={stageH} />}</View>
         </View>
 
         <Animated.View key={index} entering={FadeIn.duration(180)} style={styles.box}>
@@ -138,7 +155,7 @@ function Typewriter({ text, onDone, skipRef }: { text: string; onDone: () => voi
   return <Text style={styles.line}>{text.slice(0, n)}</Text>;
 }
 
-function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'; dark?: boolean }) {
+function ActorView({ actor, side, dark, stageH }: { actor: Actor; side: 'left' | 'right'; dark?: boolean; stageH: number }) {
   // Living things breathe: a slow, barely visible rise of the chest from the feet up. Props hold still.
   const alive = actor.kind === 'coach' || actor.kind === 'dog' || actor.kind === 'pup' || actor.kind === 'boss' || actor.kind === 'gang';
   const breath = useSharedValue(0);
@@ -147,49 +164,45 @@ function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'
   }, [alive, breath]);
   const bobStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: 1 + breath.value * 0.012 }, { scaleX: 1 - breath.value * 0.004 }] }));
 
+  const shape = SHAPES[actor.kind];
+  const size = { height: Math.round(stageH * shape.h), width: Math.round(stageH * shape.h * shape.ratio) };
   let source: number | undefined;
-  let size = { width: 220, height: 220 };
   let flip = false;
   switch (actor.kind) {
     case 'coach':
       source = COACH_FULL[actor.id];
-      size = { width: 170, height: 340 };
       break;
     case 'dog':
       source = DOGS[actor.id];
-      size = { width: 190, height: 190 };
       flip = side === 'right';
       break;
     case 'pup':
       source = PUP[actor.pose];
-      size = { width: 252, height: 220 };
       flip = side === 'right';
       break;
     case 'boss':
       source = STORY_SPRITES.boss;
-      size = { width: 258, height: 280 };
       break;
     case 'gang':
       source = STORY_SPRITES.gang;
-      size = { width: 290, height: 246 };
       flip = side === 'right';
       break;
     case 'cake':
       source = STORY_SPRITES.cake;
-      size = { width: 200, height: 190 };
       break;
     case 'cage':
       source = STORY_SPRITES.cage;
-      size = { width: 222, height: 222 };
       break;
   }
+  // The caged pup sits inside the bars: two thirds of the cage, resting a little above its floor.
+  const caged = { width: size.height * 0.65, height: size.height * 0.65, bottom: size.height * 0.12 };
 
   // A short eased step in from the side; the bob rides on the inner view so neither overwrites the other's transform.
   const entering = (side === 'left' ? FadeInLeft : FadeInRight).duration(320).easing(Easing.out(Easing.cubic));
   return (
     <Animated.View entering={entering}>
       <Animated.View style={[styles.actor, bobStyle]}>
-        {actor.kind === 'cage' && <Image source={DOGS[actor.dog]} style={[styles.caged, { opacity: dark ? 0.4 : 1 }]} resizeMode="contain" />}
+        {actor.kind === 'cage' && <Image source={DOGS[actor.dog]} style={[styles.caged, caged, { opacity: dark ? 0.4 : 1 }]} resizeMode="contain" />}
         {actor.kind === 'pup' && actor.pose === 'walk' && !dark && (
           <View style={{ transform: [{ scaleX: flip ? -1 : 1 }] }}>
             <PupWalker width={size.width} />
@@ -209,10 +222,10 @@ function ActorView({ actor, side, dark }: { actor: Actor; side: 'left' | 'right'
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.velvetNight },
-  stage: { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: '6%', paddingBottom: 124 },
-  side: { minWidth: 200, alignItems: 'center', justifyContent: 'flex-end' },
+  stage: { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: '6%', paddingBottom: CARD_SPACE },
+  side: { minWidth: '24%', alignItems: 'center', justifyContent: 'flex-end' },
   actor: { alignItems: 'center', justifyContent: 'flex-end', transformOrigin: 'bottom' },
-  caged: { position: 'absolute', bottom: 26, width: 144, height: 144 },
+  caged: { position: 'absolute' },
   box: {
     position: 'absolute',
     left: '7%',
