@@ -5,16 +5,19 @@ import {
   Picture,
   Skia,
   createPicture,
-  useImage,
-  type SkCanvas,
   type SkImage,
+  type SkPicture,
+  type SkPictureRecorder,
 } from '@shopify/react-native-skia';
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { runOnJS, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
-import { STEP } from '../constants';
+import atlas from './atlas.json';
 import { ATLAS_PAGES } from './atlasImages';
-import { RECT, STRIDE } from './buildFrame';
+import { HEADER, STRIP_AT, stripTable, type AtlasData } from './buildFrame';
+import { LEGS_PROBE } from './devProbe';
+import { advancePlayhead, drawOps, newPlayhead, type DrawScratch, type Playhead } from './drawOps';
+import { loadAllArt, loadedArt } from './gameArt';
 
 type Props = {
   ops: SharedValue<Float64Array>;
@@ -22,86 +25,128 @@ type Props = {
   height: number;
   /** The room picture behind the level; its index is ATLAS_PAGES.length. */
   background: number;
+  /** Called once every picture the level draws with has loaded (over a dev tunnel that can take seconds). */
+  onReady?: () => void;
 };
 
-const STEP_MS = STEP * 1000;
+/** Pictures stay alive this many frames after they are replaced, then are freed (see the frame callback). */
+const KEEP = 4;
+/** Where every leg and tail frame sits in the atlas, for the strip ops. */
+const STRIPS = stripTable(atlas as unknown as AtlasData);
+const NO_ART: (SkImage | null)[] = [];
+
+/**
+ * The atlas pages and the room, all at once: none until every one has finished loading (from the cache the
+ * app started filling as it opened, or loaded now), so the level is never drawn with a piece missing.
+ */
+function useArt(background: number): (SkImage | null)[] | null {
+  const [art, setArt] = useState<(SkImage | null)[] | null>(() => loadedArt([...ATLAS_PAGES, background]));
+  useEffect(() => {
+    if (art) return;
+    let live = true;
+    loadAllArt([...ATLAS_PAGES, background]).then((all) => {
+      if (live) setArt(all);
+    });
+    return () => {
+      live = false;
+    };
+  }, [art, background]);
+  return art;
+}
 
 function logUiFps(frames: number) {
   console.log(`[legs probe] UI thread draws at ${frames} Hz`);
 }
 
-/** Draws one op list at blend `a` (0 = one step ago, 1 = now). Runs on the UI thread. */
-function drawOps(canvas: SkCanvas, d: Float64Array, a: number, images: (SkImage | null)[]) {
-  'worklet';
-  const b = 1 - a;
-  const paint = Skia.Paint();
-  paint.setAntiAlias(true);
-  for (let i = 0; i + STRIDE <= d.length; i += STRIDE) {
-    const img = d[i];
-    const alpha = d[i + 17] * b + d[i + 10] * a;
-    if (alpha <= 0.01) continue;
-    const cx = d[i + 12] * b + d[i + 5] * a;
-    const cy = d[i + 13] * b + d[i + 6] * a;
-    const dw = d[i + 14] * b + d[i + 7] * a;
-    const dh = d[i + 15] * b + d[i + 8] * a;
-    const rot = d[i + 16] * b + d[i + 9] * a;
-    canvas.save();
-    canvas.translate(cx, cy);
-    if (rot !== 0) canvas.rotate((rot * 180) / Math.PI, 0, 0);
-    if (img === RECT) {
-      const c = d[i + 11];
-      paint.setColor(Float32Array.of(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1));
-      paint.setAlphaf(alpha);
-      canvas.drawRect(Skia.XYWHRect(-dw / 2, -dh / 2, dw, dh), paint);
-    } else {
-      const im = images[img];
-      if (im) {
-        if (dw < 0) canvas.scale(-1, 1);
-        const w = Math.abs(dw);
-        paint.setColor(Float32Array.of(0, 0, 0, 1));
-        paint.setAlphaf(alpha);
-        canvas.drawImageRectOptions(im, Skia.XYWHRect(d[i + 1], d[i + 2], d[i + 3], d[i + 4]), Skia.XYWHRect(-w / 2, -dh / 2, w, dh), FilterMode.Linear, MipmapMode.None, paint);
-      }
-    }
-    canvas.restore();
-  }
+interface Clock {
+  play: Playhead;
+  /** What the last picture showed, so an unchanged frame is not recorded again. */
+  drawnList: Float64Array | null;
+  drawnA: number;
+  drawnArt: number;
+  /** Made on the UI thread on the first frame and reused for every frame after. */
+  recorder: SkPictureRecorder | null;
+  scratch: DrawScratch | null;
+  made: SkPicture[];
+  frames: number;
+  start: number;
+  logged: boolean;
 }
 
 /**
- * Draws the op list from buildFrame. The simulation hands over a new list each of its steps; on every
- * display frame, one frame callback blends each op from where (and how) it was one step ago to where
- * it is now and draws the picture, so a 120 Hz screen gets a fresh picture every frame and nothing
- * else ever draws at a stale blend.
+ * Draws the op lists from buildFrame. The simulation hands over a new list each of its steps; on every
+ * display frame, one frame callback moves a playhead through the last two lists and blends each op
+ * between where (and how) it was one step ago and where it is now, so a 120 Hz screen gets a fresh
+ * picture every frame and nothing ever draws at a stale blend.
  */
-export const GameCanvas = memo(function GameCanvas({ ops, width, height, background }: Props) {
-  // ATLAS_PAGES has a fixed length, so this keeps the hook order stable.
-  const pages = ATLAS_PAGES.map((src) => useImage(src)); // eslint-disable-line react-hooks/rules-of-hooks
-  const bg = useImage(background);
-  const images: (SkImage | null)[] = [...pages, bg];
+export const GameCanvas = memo(function GameCanvas({ ops, width, height, background, onReady }: Props) {
+  const art = useArt(background);
+  const images = art ?? NO_ART;
 
-  const picture = useSharedValue(createPicture(() => {}, { width, height }));
-  const clock = useSharedValue<{ seen: Float64Array | null; at: number; frames: number; start: number; logged: boolean; drawn: number }>({
-    seen: null,
-    at: 0,
+  useEffect(() => {
+    if (art) onReady?.();
+  }, [art, onReady]);
+
+  // The empty picture shown before the first frame, made once (not on every render).
+  const [blank] = useState(() => createPicture(() => {}, { width, height }));
+  const picture = useSharedValue(blank);
+  const clock = useSharedValue<Clock>({
+    play: newPlayhead(),
+    drawnList: null,
+    drawnA: -1,
+    drawnArt: -1,
+    recorder: null,
+    scratch: null,
+    made: [],
     frames: 0,
     start: 0,
-    logged: !__DEV__,
-    drawn: -1,
+    logged: !(LEGS_PROBE && __DEV__),
   });
   useFrameCallback((info) => {
     'worklet';
     const c = clock.value;
-    const now = info.timestamp;
     const list = ops.value;
-    if (list !== c.seen) {
-      c.seen = list;
-      c.at = now;
+    // Nothing is drawn until every picture is in: the first frame shows the whole scene, the whole pup.
+    if (list.length < HEADER || images.length === 0) return;
+    const now = info.timestamp;
+    const p = c.play;
+    advancePlayhead(p, now, list);
+    let art = 0;
+    for (let i = 0; i < images.length; i++) if (images[i]) art++;
+    // Nothing new to show: the same moment of the same list (or a list where nothing moves), with the same art.
+    if (p.list === c.drawnList && (p.a === c.drawnA || p.list![1] === 1) && art === c.drawnArt) return;
+    c.drawnList = p.list;
+    c.drawnA = p.a;
+    c.drawnArt = art;
+    if (!c.recorder) c.recorder = Skia.PictureRecorder();
+    if (!c.scratch) {
+      const paint = Skia.Paint();
+      paint.setAntiAlias(true);
+      c.scratch = {
+        paint,
+        src: { x: 0, y: 0, width: 0, height: 0 },
+        dst: { x: 0, y: 0, width: 0, height: 0 },
+        color: new Float32Array(4),
+        rgb: -1,
+        alpha: 1,
+        aa: true,
+        filter: FilterMode.Linear,
+        mipmap: MipmapMode.None,
+        strips: STRIPS,
+        stripAt: STRIP_AT,
+      };
     }
-    const a = Math.min(1, (now - c.at) / STEP_MS);
-    // Nothing changed since the last draw (paused): keep the picture.
-    if (a === 1 && c.drawn === 1) return;
-    c.drawn = a;
-    picture.value = createPicture((canvas) => drawOps(canvas, list, a, images), { width, height });
+    // One recorder for every frame, and no bounds: the ops are already culled to the screen, and bounds would
+    // build a lookup tree for every picture. (A new recorder per frame told the UI thread's garbage collector
+    // about a megabyte each, 120 times a second.)
+    const canvas = c.recorder.beginRecording();
+    drawOps(canvas, p.list!, p.a, images, c.scratch);
+    const next = c.recorder.finishRecordingAsPicture();
+    picture.value = next;
+    // Free old pictures a few frames after they were replaced: the canvas has copied what it needs by then,
+    // and on the web nothing else would ever free them.
+    c.made.push(next);
+    if (c.made.length > KEEP) c.made.shift()!.dispose();
     if (!c.logged) {
       if (!c.start) c.start = now;
       c.frames++;

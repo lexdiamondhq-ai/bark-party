@@ -140,6 +140,8 @@ export function landSquash(t: number, landVy: number, landImpact: number, step: 
 export interface HeroPoseOut {
   /** Leg strip index (float) and the two frames around it. */
   legIndex: number;
+  /** Tail strip index (float); tailA, tailB and tailT are the two frames around it. */
+  tailIndex: number;
   legA: number;
   legB: number;
   legT: number;
@@ -165,6 +167,7 @@ export function heroPose(h: PoseInput, stride: number, step: number): HeroPoseOu
   const squash = h.onGround ? landSquash(h.sinceLand, h.landVy, h.landImpact, step) : 0;
   const sy = mix(g.sy, h.onGround ? 1 : airSy(h.vy), bodyA) * (1 - squash);
   const legs = framesAt(legIndex, PUP_LEG_FRAMES);
-  const tail = framesAt(h.wag * PUP_TAIL_FRAMES, PUP_TAIL_FRAMES);
-  return { legIndex, legA: legs.a, legB: legs.b, legT: legs.t, restT: h.restBlend, tailA: tail.a, tailB: tail.b, tailT: tail.t, lift, rot, sy };
+  const tailIndex = h.wag * PUP_TAIL_FRAMES;
+  const tail = framesAt(tailIndex, PUP_TAIL_FRAMES);
+  return { legIndex, tailIndex, legA: legs.a, legB: legs.b, legT: legs.t, restT: h.restBlend, tailA: tail.a, tailB: tail.b, tailT: tail.t, lift, rot, sy };
 }

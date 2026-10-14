@@ -1,0 +1,210 @@
+// The UI thread's half of the frame pipeline: which list to draw at which blend (the playhead), and the
+// drawing itself. No Skia import (the canvas, paint and scratch objects come in as arguments), so tests
+// run both in Node against made-up arrival times and a counting canvas.
+
+import type { SkCanvas, SkImage, SkPaint } from '@shopify/react-native-skia';
+
+import { STEP } from '../constants';
+import { HEADER, RECT, STRIDE, STRIP } from './buildFrame';
+
+const STEP_MS = STEP * 1000;
+
+/**
+ * Steps of slack the picture keeps behind the newest list. Lists cross from the JS thread a few
+ * milliseconds early or late; with this much in hand the picture keeps gliding through that instead of
+ * stopping when a list is late and jumping when the next one is early. Half a step is 8 ms.
+ */
+export const SLACK = 0.5;
+/** How hard the playhead leans back toward its slack, per list: at most this share faster or slower. */
+const RATE_GAIN = 0.1;
+const RATE_MAX = 0.1;
+
+/** Where the picture is in time, in simulation steps, and the two newest lists. */
+export interface Playhead {
+  /** The step the picture shows (fractional); -1 before the first list. */
+  at: number;
+  /** Display time of the last frame, ms. */
+  last: number;
+  /** Speed of the playhead against the clock; eases the slack back after a late or early list. */
+  rate: number;
+  cur: Float64Array | null;
+  /** The list one step before cur, kept so a list that arrives early never cuts a blend short. */
+  old: Float64Array | null;
+  /** What to draw this frame. */
+  list: Float64Array | null;
+  a: number;
+}
+
+export function newPlayhead(): Playhead {
+  return { at: -1, last: 0, rate: 1, cur: null, old: null, list: null, a: 0 };
+}
+
+/**
+ * Moves the playhead to display time `now` (ms) with `list` the newest list, and sets p.list and p.a to
+ * what should be drawn. Each list holds two moments, its step and the one before, so with the list before
+ * it the picture can be anywhere in the last two steps; it never runs past the newest moment (no guessing).
+ */
+export function advancePlayhead(p: Playhead, now: number, list: Float64Array) {
+  'worklet';
+  const n = list[0];
+  let arrived = false;
+  if (list !== p.cur) {
+    p.old = p.cur && p.cur[0] === n - 1 ? p.cur : null;
+    p.cur = list;
+    arrived = true;
+  }
+  if (p.at < 0) {
+    // The first list: start at its beginning, like every later list would.
+    p.at = n - 1;
+  } else {
+    const dt = Math.min(100, Math.max(0, now - p.last));
+    p.at += (dt / STEP_MS) * p.rate;
+  }
+  p.last = now;
+  const lo = p.old ? n - 2 : n - 1;
+  // Out of new moments (the JS thread is late): hold the newest one.
+  if (p.at > n) p.at = n;
+  // Too far behind (the world took several steps at once, or a new run): skip ahead to the oldest moment there is.
+  if (p.at < lo) p.at = lo;
+  if (arrived) {
+    // Lean back toward the slack: a little slower when the lists come early, a little faster when late.
+    const off = n - p.at - (1 + SLACK);
+    p.rate = 1 + Math.max(-RATE_MAX, Math.min(RATE_MAX, off * RATE_GAIN));
+  }
+  if (p.at >= n - 1 || !p.old) {
+    p.list = list;
+    p.a = Math.max(0, p.at - (n - 1));
+  } else {
+    p.list = p.old;
+    p.a = p.at - (n - 2);
+  }
+}
+
+/** One paint and a few plain objects, made once on the UI thread and reused by every op of every frame. */
+export interface DrawScratch {
+  paint: SkPaint;
+  src: { x: number; y: number; width: number; height: number };
+  dst: { x: number; y: number; width: number; height: number };
+  color: Float32Array;
+  /** The rect color, alpha and anti-aliasing last put on the paint, so an unchanged one is not set again. */
+  rgb: number;
+  alpha: number;
+  aa: boolean;
+  /** FilterMode.Linear and MipmapMode.None, passed in so this file needs no Skia import. */
+  filter: number;
+  mipmap: number;
+  /** buildFrame's stripTable and STRIP_AT: where each strip frame sits in the atlas. */
+  strips: Float64Array;
+  stripAt: readonly number[];
+}
+
+/** Draws one list at blend `a` (0 = one step ago, 1 = now). Runs on the UI thread. */
+export function drawOps(canvas: SkCanvas, d: Float64Array, a: number, images: (SkImage | null)[], s: DrawScratch) {
+  'worklet';
+  const b = 1 - a;
+  const paint = s.paint;
+  const dst = s.dst;
+  for (let i = HEADER; i + STRIDE <= d.length; i += STRIDE) {
+    const img = d[i];
+    const alpha = d[i + 17] * b + d[i + 10] * a;
+    if (alpha <= 0.01) continue;
+    const cx = d[i + 12] * b + d[i + 5] * a;
+    const cy = d[i + 13] * b + d[i + 6] * a;
+    const dw = d[i + 14] * b + d[i + 7] * a;
+    const dh = d[i + 15] * b + d[i + 8] * a;
+    const rot = d[i + 16] * b + d[i + 9] * a;
+    let im: SkImage | null = null;
+    // A strip: the index is blended to this very moment, then the two frames around it are stacked.
+    let im2: SkImage | null = null;
+    let alpha2 = 0;
+    let o1 = 0;
+    let o2 = 0;
+    if (img === STRIP) {
+      const frames = d[i + 4];
+      let idx = d[i + 3] * b + d[i + 2] * a;
+      idx = ((idx % frames) + frames) % frames;
+      const f = Math.floor(idx);
+      const at = s.stripAt[d[i + 1]];
+      o1 = (at + f) * 5;
+      o2 = (at + ((f + 1) % frames)) * 5;
+      const t = s.strips;
+      im = t[o1] >= 0 ? images[t[o1]] : null;
+      im2 = t[o2] >= 0 ? images[t[o2]] : null;
+      alpha2 = alpha * (idx - f);
+      if (!im && (!im2 || alpha2 <= 0.01)) continue;
+    } else if (img === RECT) {
+      const c = d[i + 11];
+      if (c !== s.rgb) {
+        s.color[0] = ((c >> 16) & 255) / 255;
+        s.color[1] = ((c >> 8) & 255) / 255;
+        s.color[2] = (c & 255) / 255;
+        s.color[3] = 1;
+        paint.setColor(s.color);
+        s.rgb = c;
+        s.alpha = 1;
+      }
+    } else {
+      im = images[img];
+      if (!im) continue;
+    }
+    // Only the alpha of the paint reaches a sprite, so sprites and rects share it.
+    if (alpha !== s.alpha && (im || img === RECT)) {
+      paint.setAlphaf(alpha);
+      s.alpha = alpha;
+    }
+    // Only turned pieces get soft edges. Upright ones (the room, the floor, furniture) keep their edges on whole
+    // pixels, so where two copies of the room meet there is no faint seam flickering as the camera glides
+    // (soft edges let the dark backdrop show through by a different amount every frame). Their picture is
+    // still filtered, so they move as smoothly as before.
+    const aa = rot !== 0;
+    if (aa !== s.aa) {
+      paint.setAntiAlias(aa);
+      s.aa = aa;
+    }
+    const w = Math.abs(dw);
+    // Upright and unmirrored (the floor, furniture, most props): straight into place, no transform.
+    const plain = rot === 0 && dw >= 0;
+    if (plain) {
+      dst.x = cx - w / 2;
+      dst.y = cy - dh / 2;
+    } else {
+      canvas.save();
+      canvas.translate(cx, cy);
+      if (rot !== 0) canvas.rotate((rot * 180) / Math.PI, 0, 0);
+      if (dw < 0) canvas.scale(-1, 1);
+      dst.x = -w / 2;
+      dst.y = -dh / 2;
+    }
+    dst.width = w;
+    dst.height = dh;
+    const src = s.src;
+    if (img === STRIP) {
+      const t = s.strips;
+      if (im) {
+        src.x = t[o1 + 1];
+        src.y = t[o1 + 2];
+        src.width = t[o1 + 3];
+        src.height = t[o1 + 4];
+        canvas.drawImageRectOptions(im, src, dst, s.filter, s.mipmap, paint);
+      }
+      if (im2 && alpha2 > 0.01) {
+        paint.setAlphaf(alpha2);
+        s.alpha = alpha2;
+        src.x = t[o2 + 1];
+        src.y = t[o2 + 2];
+        src.width = t[o2 + 3];
+        src.height = t[o2 + 4];
+        canvas.drawImageRectOptions(im2, src, dst, s.filter, s.mipmap, paint);
+      }
+    } else if (im) {
+      src.x = d[i + 1];
+      src.y = d[i + 2];
+      src.width = d[i + 3];
+      src.height = d[i + 4];
+      canvas.drawImageRectOptions(im, src, dst, s.filter, s.mipmap, paint);
+    } else {
+      canvas.drawRect(dst, paint);
+    }
+    if (!plain) canvas.restore();
+  }
+}

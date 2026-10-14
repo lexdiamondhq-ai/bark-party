@@ -6,7 +6,7 @@
 // 120 Hz screen moving every frame while the simulation steps at 60.
 
 import { FLOOR_SCREEN_Y, WARN, POWER, STEP } from '../constants';
-import { SPRITES, dogSprite, type SpriteName } from '../sprites';
+import { PUP_LEG_FRAMES, PUP_TAIL_FRAMES, SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD, heroScale } from '../sim/world';
 import type { World } from '../sim/types';
 import { followerDraws } from './followers';
@@ -18,11 +18,51 @@ import { heroPose, type HeroPoseOut, type PoseInput } from './pupPose';
  *  prevCentreX, prevCentreY, prevDestW, prevDestH, prevRotation, prevAlpha]
  * image >= 0 is an index into the canvas's image list; srcW/H in pixels.
  * image = RECT draws a filled rectangle of `color` (0xRRGGBB) instead.
+ * image = STRIP draws a frame strip (see STRIP).
  * A negative destW mirrors the sprite left to right.
  * The prev* fields are the same op one simulation step earlier; the canvas blends toward the current values.
  */
 export const STRIDE = 18;
 export const RECT = -1;
+/**
+ * image = STRIP draws two neighbouring frames of a strip (the pup's legs or tail), the next one over the
+ * current one at the fraction of a float index, like two stacked layers. Where a sprite op names its frame,
+ * a strip op carries [STRIP, strip, index, indexOneStepAgo, frameCount, ...the usual placement]. A frame
+ * cannot be blended, but an index can: the canvas blends the index on every display frame, so the legs move
+ * on at 120 Hz with the body instead of changing pose only once per simulation step.
+ */
+export const STRIP = -2;
+/** The strips, by number: frames `${prefix}0` to `${prefix}${frames - 1}` in the atlas. */
+export const STRIPS = [
+  { prefix: 'pup_leg_', frames: PUP_LEG_FRAMES },
+  { prefix: 'pup_tail_', frames: PUP_TAIL_FRAMES },
+] as const;
+/** Where each strip's frames start in the strip table. */
+export const STRIP_AT = STRIPS.map((_, i) => STRIPS.slice(0, i).reduce((n, st) => n + st.frames, 0));
+const stripTables = new WeakMap<AtlasData, Float64Array>();
+/** Every strip frame as [page, x, y, w, h], strip after strip; page -1 where the atlas has no such frame. */
+export function stripTable(atlas: AtlasData): Float64Array {
+  let table = stripTables.get(atlas);
+  if (!table) {
+    table = new Float64Array(STRIPS.reduce((n, st) => n + st.frames, 0) * 5);
+    let o = 0;
+    for (const st of STRIPS) {
+      for (let i = 0; i < st.frames; i++, o += 5) {
+        const f = atlas.frames[`${st.prefix}${i}`];
+        if (f) table.set(f, o);
+        else table[o] = -1;
+      }
+    }
+    stripTables.set(atlas, table);
+  }
+  return table;
+}
+/**
+ * Every list handed to the canvas starts with HEADER numbers: [step, still].
+ * step: how many simulation steps the world has taken, so the canvas can line lists up in time.
+ * still: 1 when nothing moves between the two moments (a hit-stop, the count-in), so one picture is enough.
+ */
+export const HEADER = 2;
 
 /** frames[name] = [page, x, y, w, h] in atlas pixels. */
 export interface AtlasData {
@@ -82,26 +122,91 @@ export const K = {
 } as const;
 
 export class OpList {
-  data: number[] = [];
+  /** The ops, written straight into a reused typed array (no per-step array growth or conversion). */
+  buf = new Float64Array(STRIDE * 128);
   /** keys[n] is the stable id of op n. */
   keys: number[] = [];
   /** The key the next push gets; set it before each draw call. */
   cur = 0;
+  /** The atlas's strip frames, so `data` can spell a strip out as plain sprites for tools. */
+  table: Float64Array | null = null;
+  private n = 0;
   push(image: number, sx: number, sy: number, sw: number, sh: number, cx: number, cy: number, dw: number, dh: number, rot: number, alpha: number, color: number) {
-    this.data.push(image, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color, cx, cy, dw, dh, rot, alpha);
-    this.keys.push(this.cur);
+    let d = this.buf;
+    const i = this.n * STRIDE;
+    if (i + STRIDE > d.length) {
+      const grown = new Float64Array(d.length * 2);
+      grown.set(d);
+      this.buf = d = grown;
+    }
+    d[i] = image;
+    d[i + 1] = sx;
+    d[i + 2] = sy;
+    d[i + 3] = sw;
+    d[i + 4] = sh;
+    d[i + 5] = d[i + 12] = cx;
+    d[i + 6] = d[i + 13] = cy;
+    d[i + 7] = d[i + 14] = dw;
+    d[i + 8] = d[i + 15] = dh;
+    d[i + 9] = d[i + 16] = rot;
+    d[i + 10] = d[i + 17] = alpha;
+    d[i + 11] = color;
+    this.keys[this.n++] = this.cur;
   }
   get count() {
-    return this.data.length / STRIDE;
+    return this.n;
+  }
+  /**
+   * The ops as plain numbers, for tests and tools (the game hands off with handOff). Tools draw sprites, not
+   * strips, so each strip op is spelled out as the two stacked frames it shows at this step.
+   */
+  get data(): number[] {
+    const d = this.buf;
+    const out: number[] = [];
+    for (let i = 0; i < this.n * STRIDE; i += STRIDE) {
+      if (d[i] !== STRIP) {
+        for (let f = 0; f < STRIDE; f++) out.push(d[i + f]);
+        continue;
+      }
+      const frames = d[i + 4];
+      const idx = ((d[i + 2] % frames) + frames) % frames;
+      const a = Math.floor(idx);
+      const layers: [number, number][] = [
+        [a, 1],
+        [(a + 1) % frames, idx - a],
+      ];
+      for (const [frame, weight] of layers) {
+        const o = (STRIP_AT[d[i + 1]] + frame) * 5;
+        if (!this.table || this.table[o] < 0) continue;
+        out.push(this.table[o], this.table[o + 1], this.table[o + 2], this.table[o + 3], this.table[o + 4]);
+        for (let f = 5; f < 10; f++) out.push(d[i + f]);
+        out.push(d[i + 10] * weight, 0);
+        for (let f = 12; f < 17; f++) out.push(d[i + f]);
+        out.push(d[i + 17] * weight);
+      }
+    }
+    return out;
   }
   reset() {
-    this.data.length = 0;
+    this.n = 0;
     this.keys.length = 0;
     this.cur = 0;
   }
-  /** The numbers as one typed array, for the handoff to the UI thread. */
+  /** The ops alone, as an exact-size typed copy. */
   toArray(): Float64Array {
-    return Float64Array.from(this.data);
+    return this.buf.slice(0, this.n * STRIDE);
+  }
+  /**
+   * The list for the UI thread: the header, then the ops, in a new exact-size array. The hand-off copies
+   * the whole buffer it is given, so an exact-size array is the cheapest thing to send, and a fresh one
+   * per step means the UI never reads a buffer this side is still writing (the web shares, it does not copy).
+   */
+  handOff(step: number, still: boolean): Float64Array {
+    const out = new Float64Array(HEADER + this.n * STRIDE);
+    out[0] = step;
+    out[1] = still ? 1 : 0;
+    out.set(this.buf.subarray(0, this.n * STRIDE), HEADER);
+    return out;
   }
   /**
    * Copies the moving numbers of `prev` into this list's previous-step slots, pairing ops by key.
@@ -110,12 +215,13 @@ export class OpList {
    * whose frame advanced never flashes the new frame at the old alpha.
    */
   takePrevFrom(prev: OpList) {
-    const a = this.data;
-    const b = prev.data;
+    const a = this.buf;
+    const b = prev.buf;
     const ka = this.keys;
     const kb = prev.keys;
+    const end = this.n * STRIDE;
     let j = 0;
-    for (let i = 0, n = 0; i < a.length; i += STRIDE, n++) {
+    for (let i = 0, n = 0; i < end; i += STRIDE, n++) {
       let m = j;
       while (m < kb.length && kb[m] !== ka[n]) m++;
       if (m === kb.length) continue;
@@ -125,7 +231,15 @@ export class OpList {
       // A sprite that flipped this step snaps instead of shrinking through zero.
       if (Math.sign(a[i + 7]) !== Math.sign(b[q + 7])) continue;
       for (let f = 0; f < MOVING.length; f++) a[i + 12 + f] = b[q + MOVING[f]];
-      if (a[i + 1] === b[q + 1] && a[i + 2] === b[q + 2] && a[i + 3] === b[q + 3]) a[i + 17] = b[q + 10];
+      if (a[i] === STRIP) {
+        // The strip's index one step ago, taken on the near side of the wrap, so the blend goes the short way.
+        const frames = a[i + 4];
+        let was = b[q + 2];
+        if (was - a[i + 2] > frames / 2) was -= frames;
+        else if (a[i + 2] - was > frames / 2) was += frames;
+        a[i + 3] = was;
+        a[i + 17] = b[q + 10];
+      } else if (a[i + 1] === b[q + 1] && a[i + 2] === b[q + 2] && a[i + 3] === b[q + 3]) a[i + 17] = b[q + 10];
     }
   }
 }
@@ -133,6 +247,13 @@ export class OpList {
 const COCOA = 0x1a0f0b;
 const PIT = 0x2b1a12;
 const FLOOR_FILL = 0x7a4a2c;
+/** Seconds of throw pose a squirrel gets when its acorn leaves (world.ts stepEnemies sets e.throwing to this). */
+const THROW_TIME = 0.3;
+/**
+ * Things that do not have an id yet (made during the last step) are keyed by their place in their list
+ * instead, from here up, so no two ops in a list ever share a key and the pairing is never ambiguous.
+ */
+const UNNAMED = 900_000;
 
 export function hexToInt(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
@@ -208,6 +329,7 @@ const scratch = new OpList();
 
 export function buildFrame(world: World, setup: FrameSetup, out = new OpList()): OpList {
   out.reset();
+  out.table = stripTable(setup.atlas);
   drawScene(world, setup, viewNow(world), out, setup.probe);
   // A frozen world (hit-stop, respawn) has no "one step ago": every op stays put.
   if (world.prev.t === world.t) return out;
@@ -250,6 +372,11 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   const part = (name: SpriteName, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => {
     const f = atlas.frames[name];
     if (f) out.push(f[0], f[1], f[2], f[3], f[4], sx(cx), sy(cy), w * k, h * k, rot, alpha, 0);
+  };
+  /** Draws a strip (legs, tail) at float index `index`, placed like part(). */
+  const strip = (which: number, index: number, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => {
+    const frames = STRIPS[which].frames;
+    out.push(STRIP, which, index, index, frames, sx(cx), sy(cy), w * k, h * k, rot, alpha, 0);
   };
 
   // Background room, slow parallax, tiled.
@@ -310,10 +437,11 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     if (visible(p.x + p.w / 2, p.w)) sprite(p.sprite, p.x + p.w / 2, p.y);
   });
 
-  // Balloon posts.
+  // Balloon posts. One step ago, a post the pup reached this step was still down.
   world.checkpoints.forEach((c, i) => {
     out.cur = key(K.checkpoint, i);
-    if (visible(c.x)) sprite(c.reached ? 'balloon_post_up' : 'balloon_post_down', c.x, 0, { rot: c.reached ? Math.sin(t * 3 + c.x) * 0.05 : 0 });
+    const up = c.reached && (!v.ago || v.hero.x >= c.x);
+    if (visible(c.x)) sprite(up ? 'balloon_post_up' : 'balloon_post_down', c.x, 0, { rot: up ? Math.sin(t * 3 + c.x) * 0.05 : 0 });
   });
 
   // Finish arch for levels without a boss.
@@ -338,15 +466,19 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   world.pickups.forEach((p, i) => {
     if (!visible(p.x)) return;
     out.cur = key(K.pickup, i);
-    if (p.taken) {
-      const takenT = v.timer(p.takenT);
-      if (takenT > 0.4 || takenT < 0) return;
+    const bob = (at: number) => Math.sin(at * 4 + p.x * 0.05) * 3;
+    const tilt = (at: number) => (p.kind === 'present' ? 0 : Math.sin(at * 3 + p.x) * 0.15);
+    // One step before it was taken it was still bobbing, so the moment of pickup pairs with that and glides.
+    const takenT = p.taken ? v.timer(p.takenT) : -1;
+    if (takenT > 0.4) return;
+    if (takenT >= 0) {
+      // It lifts off from the bob and tilt it had when taken, so it never jumps as it goes.
+      const at = t - takenT;
       const u = takenT / 0.4;
-      sprite(p.sprite, p.x, p.y + u * 50, { alpha: 1 - u, scale: 1 + u * 0.6 });
+      sprite(p.sprite, p.x, p.y + bob(at) + u * 50, { rot: tilt(at) * (1 - u), alpha: 1 - u, scale: 1 + u * 0.6 });
       return;
     }
-    const bob = Math.sin(t * 4 + p.x * 0.05) * 3;
-    sprite(p.sprite, p.x, p.y + bob, { rot: p.kind === 'present' ? 0 : Math.sin(t * 3 + p.x) * 0.15 });
+    sprite(p.sprite, p.x, p.y + bob(t), { rot: tilt(t) });
   });
 
   // Squirrels, the cat, the vacuum and toy blocks.
@@ -357,9 +489,10 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     const ey = v.pos(e.y, e.py);
     const et = Math.max(0, v.timer(e.t));
     const flip = e.facing < 0;
-    // A hit pops the enemy: a quick stretch up and back, as the stun or flee starts.
-    const popT = v.ago ? Math.min(0.18, e.pop + STEP) : e.pop;
-    const pop = e.pop > 0 ? 1 + 0.26 * Math.sin((Math.PI * popT) / 0.18) : 1;
+    // A hit pops the enemy: a quick stretch up and back, as the stun or flee starts. The last sliver of the
+    // timer under one step counts as done, so the stretch is already back when the timer runs out between steps.
+    const popT = v.ago ? (e.pop > 0 ? Math.min(0.18, e.pop + STEP) : 0) : e.pop;
+    const pop = popT >= STEP ? 1 + 0.26 * Math.sin((Math.PI * popT) / 0.18) : 1;
     const o = { flip, syScale: pop, sxScale: 1 / Math.sqrt(pop) };
     if (e.type === 'runner' || e.type === 'thrower') {
       if (e.state === 'stunned') sprite('squirrel_stunned', ex, ey, { ...o, rot: et * 9 });
@@ -368,8 +501,9 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
         if (!e.awake) sprite(`squirrel_idle_${Math.floor(t * 3 + e.id) % 2}` as SpriteName, ex, ey, o);
         else if (et < WARN.runnerHop) sprite('squirrel_run_0', ex, ey, o);
         else sprite(`squirrel_run_${Math.floor(t * 14) % 4}` as SpriteName, ex, ey, o);
-      } else if (e.windup > 0) {
-        // Leaning back with the acorn: the tell before every throw.
+      } else if (e.windup > 0 || (v.ago && e.throwing > THROW_TIME - STEP / 2)) {
+        // Leaning back with the acorn: the tell before every throw. One step before the acorn left, the
+        // squirrel was at the end of its lean, so the release swings up from there instead of snapping.
         const w = v.ago ? Math.min(WARN.windup, e.windup + STEP) : e.windup;
         const u = 1 - w / WARN.windup;
         const crouch = 1 - 0.1 * Math.sin(Math.PI * Math.min(1, u * 1.15));
@@ -390,26 +524,29 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   }
 
   // Where each thrown acorn will land: a shadow ring on the floor that grows and darkens as it drops.
-  for (const a of world.acorns) {
-    if (a.landT <= 0 || a.rolling || a.reflected || !visible(a.landX)) continue;
-    out.cur = key(K.landMark, a.id ?? 0);
-    const left = v.ago ? Math.min(WARN.acornFlight, a.landT + STEP) : a.landT;
-    const u = 1 - left / WARN.acornFlight;
+  world.acorns.forEach((a, i) => {
+    if (a.landT <= 0 || a.rolling || a.reflected || !visible(a.landX)) return;
+    out.cur = key(K.landMark, a.id ?? UNNAMED + i);
+    // A drop from high up takes longer than a lob to head height: its ring waits at its smallest until the
+    // last WARN.acornFlight seconds. One step ago is exactly one step more, so the ring never pops.
+    const left = v.ago ? a.landT + STEP : a.landT;
+    const u = Math.max(0, Math.min(1, 1 - left / WARN.acornFlight));
     sprite('land_mark', a.landX, 1, { scale: 0.6 + 0.55 * u, alpha: 0.5 + 0.5 * u });
-  }
+  });
 
   // Acorns.
-  for (const a of world.acorns) {
-    if (!visible(a.x)) continue;
-    out.cur = key(K.acorn, a.id ?? 0);
+  world.acorns.forEach((a, i) => {
+    if (!visible(a.x)) return;
+    out.cur = key(K.acorn, a.id ?? UNNAMED + i);
     const spin = v.ago ? a.spin - STEP * (a.rolling ? -14 : 10) : a.spin;
     sprite(a.golden ? 'acorn_golden' : 'acorn', v.pos(a.x, a.px), v.pos(a.y, a.py) - 9, { rot: spin, scale: a.golden ? 1.4 : 1 });
-  }
+  });
 
   // Tennis balls from Ball Mouth.
-  for (const ball of world.balls) {
+  for (let i = 0; i < world.balls.length; i++) {
+    const ball = world.balls[i];
     if (!ball.alive || !visible(ball.x)) continue;
-    out.cur = key(K.ball, ball.id ?? 0);
+    out.cur = key(K.ball, ball.id ?? UNNAMED + i);
     const bt = Math.max(0, v.timer(ball.t));
     sprite('tennis_ball', v.pos(ball.x, ball.px), v.pos(ball.y, ball.py) - 9, { rot: bt * 18, scale: 1.1 });
   }
@@ -422,12 +559,12 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     out.cur = key(K.rope, i);
     rect((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, Math.hypot(dx, dy), 2.2, COCOA, 0.9, -Math.atan2(dy, dx));
   });
-  friends.sprites.forEach((f, i) => {
-    out.cur = key(K.follower, i);
+  friends.sprites.forEach((f) => {
+    out.cur = key(K.follower, f.id);
     sprite(f.sprite, f.x, f.y, f);
   });
 
-  drawHero(world, v, out, sprite, part, probe);
+  drawHero(world, v, out, sprite, part, strip, probe);
 
   // The boss.
   const b = world.boss;
@@ -465,9 +602,10 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   }
 
   // Particles: dust, sparkles, hearts, confetti and the bark burst.
-  for (const p of world.particles) {
+  for (let i = 0; i < world.particles.length; i++) {
+    const p = world.particles[i];
     if (!visible(p.x)) continue;
-    out.cur = key(K.particle, p.id ?? 0);
+    out.cur = key(K.particle, p.id ?? UNNAMED + i);
     const life = v.ago ? Math.min(p.maxLife, p.life + STEP) : p.life;
     const fade = Math.min(1, life / (p.maxLife * 0.35));
     const scale = p.scale1 === undefined ? p.scale : p.scale + (p.scale1 - p.scale) * (1 - life / p.maxLife);
@@ -481,6 +619,7 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
 
 type SpriteFn = (name: SpriteName, x: number, y: number, opts?: SpriteOpts) => void;
 type PartFn = (name: SpriteName, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => void;
+type StripFn = (which: number, index: number, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => void;
 
 // The Dog Better puppet: pieces placed in the walking sticker's 802 x 714 px canvas (pupFrames.json).
 const PUP_CANVAS = { w: 802, h: 714 };
@@ -489,16 +628,21 @@ const BASE_BOX = [0, 0, PUP_CANVAS.w, PUP_CANVAS.h];
 const LEGS_BOX = [6, 420, 728, 714];
 const TAIL_BOX = [72, 229, 292, 392];
 
-/** One piece of the puppet: a frame, the canvas box it was cut from, and how much of it shows. */
-interface PupLayer {
-  name: SpriteName;
+/**
+ * One piece of the puppet: a frame (or a strip at a float index), the canvas box it was cut from, and how
+ * much of it shows.
+ */
+export interface PupLayer {
+  name?: SpriteName;
+  strip?: number;
+  index?: number;
   box: number[];
   alpha: number;
-  /** Extra lift for this piece, world units (the legs trail the body a little in the bound). */
-  lift?: number;
 }
 
-function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha: number; sxScale: number; syScale: number; big: number }, layers: PupLayer[]) {
+type LayerFn = (layer: PupLayer, cx: number, cy: number, w: number, h: number, rot: number, alpha: number) => void;
+
+function drawPuppet(part: LayerFn, x: number, y: number, o: { rot: number; alpha: number; sxScale: number; syScale: number; big: number }, layers: PupLayer[]) {
   const H = SPRITES.pup_base.h * o.syScale * o.big;
   const cos = Math.cos(o.rot);
   const sin = Math.sin(o.rot);
@@ -512,14 +656,19 @@ function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha:
     const w = (box[2] - box[0]) * PUP_S * o.sxScale * o.big;
     const h = (box[3] - box[1]) * PUP_S * o.syScale * o.big;
     // Screen rotation is clockwise for positive angles; in world space (y up) that is the inverse turn.
-    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, alpha);
+    part(l, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, alpha);
   }
 }
 
-const leg = (i: number): SpriteName => `pup_leg_${i}` as SpriteName;
-const tail = (i: number): SpriteName => `pup_tail_${i}` as SpriteName;
+/** Strip numbers in STRIPS. */
+const LEGS = 0;
+const TAIL = 1;
 
-/** The puppet's six layers for a pose: body, two tail frames, two stride frames, the rest frame. */
+/**
+ * The puppet's four layers for a pose: body, tail strip, stride strip, the rest frame. A strip shows the two
+ * frames around its index, the next stacked over the current one (adjacent frames nearly coincide, so this
+ * never cross-fades into a double image).
+ */
 export function puppetLayers(p: HeroPoseOut, probe?: PupProbe): PupLayer[] {
   if (probe) {
     probe.legA = p.legA;
@@ -530,19 +679,19 @@ export function puppetLayers(p: HeroPoseOut, probe?: PupProbe): PupLayer[] {
   const live = 1 - p.restT;
   return [
     { name: 'pup_base', box: BASE_BOX, alpha: 1 },
-    { name: tail(p.tailA), box: TAIL_BOX, alpha: 1 },
-    { name: tail(p.tailB), box: TAIL_BOX, alpha: p.tailT },
-    // Adjacent stride frames nearly coincide, so the next one stacks over the current one instead of cross-fading.
-    { name: leg(p.legA), box: LEGS_BOX, alpha: live },
-    { name: leg(p.legB), box: LEGS_BOX, alpha: live * p.legT },
+    { strip: TAIL, index: p.tailIndex, box: TAIL_BOX, alpha: 1 },
+    { strip: LEGS, index: p.legIndex, box: LEGS_BOX, alpha: live },
     { name: 'pup_leg_rest', box: LEGS_BOX, alpha: p.restT },
   ];
 }
 
-function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: PartFn, probe?: PupProbe) {
+function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: PartFn, strip: StripFn, probe?: PupProbe) {
   const h = v.hero;
   if (world.phase === 'respawn' && world.phaseT < 0.9) return;
   const t = v.t;
+  // Which way the pup is drawn (a sticker or the puppet) is the pose it has now, in both moments: one step
+  // before a bark or a slide starts, the sticker is placed where the pup was, so the switch never jumps.
+  const posed = world.hero.pose;
   const flicker = h.invuln > 0 && Math.floor(h.invuln * 14) % 2 === 0 ? 0.35 : 1;
   const big = h.big;
 
@@ -557,7 +706,7 @@ function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: Pa
   let name: SpriteName | null = null;
   let rot = 0;
   let lift = 0;
-  switch (h.pose) {
+  switch (posed) {
     case 'slide':
       name = 'pup_down';
       lift = Math.sin(t * 40) * 0.6;
@@ -591,13 +740,14 @@ function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: Pa
   const base = key(K.hero, 1);
   let slot = 0;
   drawPuppet(
-    (nm, cx, cy, w, hh, r, a) => {
+    (l, cx, cy, w, hh, r, a) => {
       out.cur = base + slot++;
-      part(nm, cx, cy, w, hh, r, a);
+      if (l.strip !== undefined) strip(l.strip, l.index!, cx, cy, w, hh, r, a);
+      else part(l.name!, cx, cy, w, hh, r, a);
     },
     h.x,
     h.y + pose.lift * big,
-    { rot: h.pose === 'hurt' ? rot : pose.rot, alpha: flicker, sxScale: 1 / Math.sqrt(sy), syScale: sy, big },
+    { rot: posed === 'hurt' ? rot : pose.rot, alpha: flicker, sxScale: 1 / Math.sqrt(sy), syScale: sy, big },
     layers,
   );
 }

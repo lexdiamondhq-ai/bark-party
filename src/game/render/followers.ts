@@ -5,6 +5,8 @@ import { dogSprite, type SpriteName } from '../sprites';
 import type { World } from '../sim/types';
 
 export interface FollowerSprite {
+  /** Stable across steps: a pup keeps its number (its place in the rescue order) from the crate to the seat. */
+  id: number;
   sprite: SpriteName;
   x: number;
   y: number;
@@ -37,6 +39,8 @@ export interface FollowerView {
   heroY: number;
 }
 
+/** The wagon's id; pups are 0, 1, 2... in the order they were freed. */
+const WAGON_ID = 99;
 /** How far behind the hero (in trail steps) the wagon rides. */
 const WAGON_LAG = 20;
 const WAGON_BACK = 54;
@@ -83,9 +87,9 @@ export function followerDraws(world: World, view: FollowerView): FollowerDraws {
   world.followers.forEach((dog, i) => {
     const jiggle = 1 + Math.sin(t * 3.2 + i * 1.9) * 0.025;
     const s = seat(i);
-    out.sprites.push({ sprite: dogSprite(dog), x: s.x, y: s.y, rot, scale: PUP_SCALE, syScale: jiggle, sxScale: wide(jiggle) });
+    out.sprites.push({ id: i, sprite: dogSprite(dog), x: s.x, y: s.y, rot, scale: PUP_SCALE, syScale: jiggle, sxScale: wide(jiggle) });
   });
-  out.sprites.push({ sprite: 'wagon', x: wx, y: wy, rot });
+  out.sprites.push({ id: WAGON_ID, sprite: 'wagon', x: wx, y: wy, rot });
 
   // A just-freed pup arcs from its crate into the next free seat.
   world.boarding.forEach((b, n) => {
@@ -94,7 +98,10 @@ export function followerDraws(world: World, view: FollowerView): FollowerDraws {
     const x = b.x + (s.x - b.x) * u;
     const y = b.y + (s.y - b.y) * u + Math.sin(Math.PI * u) * 90;
     const stretch = 1 + Math.sin(Math.PI * u) * 0.12;
-    out.sprites.push({ sprite: dogSprite(b.dog), x, y, rot: -0.3 + 0.6 * u, scale: 0.95 - 0.21 * u, syScale: stretch, sxScale: wide(stretch) });
+    // The tumble ends level with the wagon, so the pup does not snap straight as it lands in its seat.
+    const tumble = -0.3 + 0.6 * u;
+    const settle = smooth((u - 0.75) / 0.25);
+    out.sprites.push({ id: world.followers.length + n, sprite: dogSprite(b.dog), x, y, rot: tumble + (rot - tumble) * settle, scale: 0.95 - 0.21 * u, syScale: stretch, sxScale: wide(stretch) });
   });
 
   // Rope from the tow ring (front, right) to the hero's chest.

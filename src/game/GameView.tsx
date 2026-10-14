@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   Image,
@@ -22,6 +22,7 @@ import Animated, {
   withSpring,
   withTiming,
   ZoomIn,
+  type SharedValue,
 } from 'react-native-reanimated';
 
 import { colors, fonts, springs } from '../theme/tokens';
@@ -33,7 +34,8 @@ import type { CoachId, LevelDef } from './level/types';
 import { GameCanvas } from './render/GameCanvas';
 import { ATLAS_PAGES } from './render/atlasImages';
 import atlas from './render/atlas.json';
-import { buildFrame, OpList, type AtlasData, type PupProbe } from './render/buildFrame';
+import { buildFrame, OpList, type AtlasData, type FrameSetup, type PupProbe } from './render/buildFrame';
+import { LEGS_PROBE } from './render/devProbe';
 import { NO_INPUT, type GameEvent, type Input, type PowerKind } from './sim/types';
 import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, setReduceMotion, snapPrev, stepWorld, type LevelResult } from './sim/world';
 import type { DogId } from './sprites';
@@ -50,7 +52,7 @@ function createStartWorld(level: LevelDef, viewW: number, startX: number | undef
   return w;
 }
 
-/** Development only: one second of per-frame timing, printed to the console, to check the legs never stutter. */
+/** Development only (LEGS_PROBE): one second of per-frame timing, printed to the console, to check the legs never stutter. */
 type ProbeRow = { dt: number; steps: number; legA: number; legB: number; legT: number; tuckT: number; buildMs: number; setMs: number; ops: number };
 type Probe = { label: string; rows: ProbeRow[]; until: number };
 
@@ -82,6 +84,19 @@ function reportProbe(p: Probe) {
 const SWIPE_DOWN = 26;
 const BARK_SIZE = 96;
 
+/**
+ * Frame timing. A frame within SNAP seconds of one step counts as exactly one step. The JS thread's frames
+ * run at the step rate (60 Hz) and their times jitter by a few milliseconds; without this the step counter
+ * sits on the edge and the world steps twice in one frame and not at all in the next, about one frame in four
+ * (measured in the simulator), which shows as a stop and a jump. Real frame lengths come in whole display
+ * frames (8.3, 16.7, 25, 33 ms), so a missed frame is never snapped. At most MAX_STEPS steps run in one frame;
+ * after a longer stall the world waits for it instead of racing ahead, so the picture never skips more than a step.
+ */
+const SNAP = 0.004;
+const MAX_STEPS = 2;
+/** If the level's pictures have not loaded by then (a dropped dev tunnel), the count-in starts anyway. */
+const ART_WAIT_MS = 8000;
+
 type Props = {
   level: LevelDef;
   /** Treats bought in the shop. */
@@ -110,21 +125,163 @@ const POWER_ICON: Record<PowerKind, number> = {
 };
 const POWER_MAX: Record<'mega' | 'turbo' | 'ball', number> = { mega: POWER.megaTime, turbo: POWER.turboTime, ball: POWER.ballTime };
 
-/** A live power on the HUD: its sticker, and a bar that drains as it runs out. */
-function PowerChip({ kind, left, max }: { kind: PowerKind; left: number; max: number }) {
+/** Seconds left on each timed power, for the bars. Written by the game loop, read on the UI thread. */
+type PowerLeft = Record<'mega' | 'turbo' | 'ball', number>;
+type PowersOn = { mega: boolean; turbo: boolean; ball: boolean; bubble: number };
+
+/**
+ * What the HUD shows. The game loop writes it as things happen; each piece of the HUD reads only its own
+ * part and re-renders alone, so a bone, a callout or a banner never re-renders the whole screen (and
+ * never holds up the game loop on the JS thread while the run is on).
+ */
+interface HudState {
+  hearts: number;
+  bones: number;
+  friends: DogId[];
+  powers: PowersOn;
+  boss: { hits: number; needed: number } | null;
+  callout: Callout | null;
+  banner: { key: number; text: string } | null;
+}
+
+function createHud(initial: HudState) {
+  let state = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => state,
+    set(patch: Partial<HudState>) {
+      state = { ...state, ...patch };
+      listeners.forEach((l) => l());
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+type Hud = ReturnType<typeof createHud>;
+
+function useHud<T>(hud: Hud, pick: (s: HudState) => T): T {
+  return useSyncExternalStore(hud.subscribe, () => pick(hud.get()));
+}
+
+/** A live power on the HUD: its sticker, and a bar that drains (on the UI thread) as it runs out. */
+function PowerChip({ kind, left, max, count = 0 }: { kind: PowerKind; left: SharedValue<PowerLeft>; max: number; count?: number }) {
+  const fill = useAnimatedStyle(() => {
+    const v = kind === 'bubble' ? 0 : left.value[kind];
+    return { width: `${Math.max(0, Math.min(100, (v / max) * 100))}%` };
+  });
   return (
     <Animated.View entering={ZoomIn.springify().damping(12)} exiting={FadeOut.duration(200)} style={styles.power}>
       <Image source={POWER_ICON[kind]} style={styles.powerIcon} />
       {kind === 'bubble' ? (
-        <Text style={styles.powerCount}>x{left}</Text>
+        <Text style={styles.powerCount}>x{count}</Text>
       ) : (
         <View style={styles.powerBar}>
-          <View style={[styles.powerFill, { width: `${Math.max(0, Math.min(100, (left / max) * 100))}%` }]} />
+          <Animated.View style={[styles.powerFill, fill]} />
         </View>
       )}
     </Animated.View>
   );
 }
+
+const HudHearts = memo(function HudHearts({ hud, max }: { hud: Hud; max: number }) {
+  const hearts = useHud(hud, (s) => s.hearts);
+  return (
+    <View style={styles.hudRow} pointerEvents="none">
+      {Array.from({ length: max }, (_, i) => (
+        <Heart key={i} full={i < hearts} />
+      ))}
+    </View>
+  );
+});
+
+const HudBones = memo(function HudBones({ hud, bump }: { hud: Hud; bump: SharedValue<number> }) {
+  const bones = useHud(hud, (s) => s.bones);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: bump.value }] }));
+  return (
+    <Animated.View style={[styles.chip, style]} pointerEvents="none">
+      <Image source={HUD.bone} style={styles.boneIcon} />
+      <Text style={styles.chipText}>{bones}</Text>
+    </Animated.View>
+  );
+});
+
+const HudFriends = memo(function HudFriends({ hud }: { hud: Hud }) {
+  const friends = useHud(hud, (s) => s.friends);
+  return (
+    <View style={styles.hudRow} pointerEvents="none">
+      {friends.map((d) => (
+        <Image key={d} source={DOGS[d]} style={styles.friend} />
+      ))}
+    </View>
+  );
+});
+
+const HudPowers = memo(function HudPowers({ hud, left, megaMax, turboMax }: { hud: Hud; left: SharedValue<PowerLeft>; megaMax: number; turboMax: number }) {
+  const on = useHud(hud, (s) => s.powers);
+  return (
+    <View style={styles.hudRow} pointerEvents="none">
+      {on.mega && <PowerChip kind="mega" left={left} max={megaMax} />}
+      {on.turbo && <PowerChip kind="turbo" left={left} max={turboMax} />}
+      {on.ball && <PowerChip kind="ball" left={left} max={POWER_MAX.ball} />}
+      {on.bubble > 0 && <PowerChip kind="bubble" left={left} max={1} count={on.bubble} />}
+    </View>
+  );
+});
+
+const HudBoss = memo(function HudBoss({ hud, name }: { hud: Hud; name: string }) {
+  const boss = useHud(hud, (s) => s.boss);
+  if (!boss) return null;
+  return (
+    <Animated.View entering={FadeIn} pointerEvents="none" style={[styles.bossBar, { bottom: 14 }]}>
+      <Image source={HUD.cake} style={styles.bossCake} />
+      <View>
+        <Text style={styles.bossName}>{name}</Text>
+        <View style={styles.hudRow}>
+          {Array.from({ length: boss.needed }, (_, i) => (
+            <View key={i} style={[styles.pip, i < boss.needed - boss.hits ? styles.pipFull : null]} />
+          ))}
+        </View>
+      </View>
+    </Animated.View>
+  );
+});
+
+const HudCallout = memo(function HudCallout({ hud, left }: { hud: Hud; left: number }) {
+  const callout = useHud(hud, (s) => s.callout);
+  if (!callout) return null;
+  return (
+    <Animated.View
+      key={`callout-${callout.key}`}
+      entering={SlideInLeft.springify().damping(16)}
+      exiting={SlideOutLeft.duration(200)}
+      pointerEvents="none"
+      style={[styles.callout, { left, top: 8 }]}
+    >
+      <Image
+        source={callout.coach ? COACH_CHEER[callout.coach] : DOGS[callout.dog!]}
+        style={callout.coach ? styles.calloutCoach : styles.calloutDog}
+        resizeMode="contain"
+      />
+      <View style={styles.bubble}>
+        <Text style={styles.bubbleText}>{callout.text}</Text>
+      </View>
+    </Animated.View>
+  );
+});
+
+const HudBanner = memo(function HudBanner({ hud }: { hud: Hud }) {
+  const banner = useHud(hud, (s) => s.banner);
+  if (!banner) return null;
+  return (
+    <Animated.View key={`banner-${banner.key}`} entering={ZoomIn.springify().damping(10)} exiting={FadeOut} pointerEvents="none" style={styles.bannerWrap}>
+      <Text style={styles.banner}>{banner.text}</Text>
+    </Animated.View>
+  );
+});
 
 /** The run from the player's side: a count-in, then running, with pauses, game over and the win. */
 type RunState = 'ready' | 'running' | 'paused' | 'gameover' | 'won';
@@ -138,25 +295,34 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const viewW = width / k;
 
   const [world] = useState(() => createStartWorld(level, viewW, startX, boosts));
+  const [hud] = useState(() =>
+    createHud({
+      hearts: world.maxHearts,
+      bones: 0,
+      friends: [],
+      powers: { mega: false, turbo: false, ball: false, bubble: world.hero.powers.bubble },
+      boss: null,
+      callout: null,
+      banner: null,
+    }),
+  );
   const ops = useSharedValue<Float64Array>(new Float64Array(0));
+  const powerLeft = useSharedValue<PowerLeft>({ mega: 0, turbo: 0, ball: 0 });
   const input = useRef<Input>({ ...NO_INPUT });
   const jumpTouch = useRef<{ id: string; y: number; slid: boolean } | null>(null);
   const runState = useRef<RunState>('ready');
   const reduceMotion = useRef(false);
   const doneRef = useRef(false);
-  const probe = useRef<Probe | null>(__DEV__ ? { label: 'level start', rows: [], until: 0 } : null);
+  const probe = useRef<Probe | null>(LEGS_PROBE && __DEV__ ? { label: 'level start', rows: [], until: 0 } : null);
   const probedJump = useRef(false);
+  /** Steps the world has taken this run; each list for the canvas carries it. */
+  const stepCount = useRef(0);
 
-  const [hearts, setHearts] = useState(world.maxHearts);
-  const [bones, setBones] = useState(0);
-  const [friends, setFriends] = useState<DogId[]>([]);
-  const [callout, setCallout] = useState<Callout | null>(null);
-  const [boss, setBoss] = useState<{ hits: number; needed: number } | null>(null);
-  const [banner, setBanner] = useState<{ key: number; text: string } | null>(null);
   const [state, setState] = useState<RunState>('ready');
-  const [powers, setPowers] = useState({ mega: 0, turbo: 0, ball: 0, bubble: 0 });
   const [countIn, setCountIn] = useState<'ready' | 'go' | null>('ready');
   const [muted, setMutedState] = useState(isMuted());
+  const [artReady, setArtReady] = useState(false);
+  const markArtReady = useCallback(() => setArtReady(true), []);
   const setRun = useCallback((s: RunState) => {
     runState.current = s;
     setState(s);
@@ -165,7 +331,6 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const barkScale = useSharedValue(1);
   const barkStyle = useAnimatedStyle(() => ({ transform: [{ scale: barkScale.value }] }));
   const boneBump = useSharedValue(1);
-  const boneStyle = useAnimatedStyle(() => ({ transform: [{ scale: boneBump.value }] }));
 
   useEffect(() => {
     resizeView(world, viewW);
@@ -184,8 +349,16 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
     return () => playMusic('none');
   }, [level.music, world]);
 
+  // The count-in waits for the level's pictures: over a slow dev tunnel they can take seconds, and the dog
+  // must never start running through a room that is not drawn yet.
+  useEffect(() => {
+    const t = setTimeout(markArtReady, ART_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [markArtReady]);
+
   // Count-in: "Ready?" then "Go!", and the dog is off.
   useEffect(() => {
+    if (!artReady) return;
     const go = setTimeout(() => {
       setCountIn('go');
       playSfx('whoosh');
@@ -196,134 +369,153 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       clearTimeout(go);
       clearTimeout(done);
     };
-  }, [setRun]);
+  }, [artReady, setRun]);
 
   // Callouts and banners are siblings, so their keys come from separate counters, never the clock.
   const keys = useRef({ callout: 0, banner: 0 });
-  const calloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showCallout = useCallback((c: Omit<Callout, 'key'>, ms = 2800) => {
-    setCallout({ ...c, key: ++keys.current.callout });
-    if (calloutTimer.current) clearTimeout(calloutTimer.current);
-    calloutTimer.current = setTimeout(() => setCallout(null), ms);
+  const timers = useRef<{ callout: ReturnType<typeof setTimeout> | null; banner: ReturnType<typeof setTimeout> | null }>({ callout: null, banner: null });
+  useEffect(() => {
+    const t = timers.current;
+    return () => {
+      if (t.callout) clearTimeout(t.callout);
+      if (t.banner) clearTimeout(t.banner);
+    };
   }, []);
-  const showBanner = useCallback((text: string) => {
-    setBanner({ key: ++keys.current.banner, text });
-    setTimeout(() => setBanner(null), 1800);
-  }, []);
-
-  const handleEvents = useCallback(
-    (events: GameEvent[]) => {
-      for (const e of events) {
-        switch (e.type) {
-          case 'sfx':
-            playSfx(e.name);
-            break;
-          case 'haptic':
-            if (Platform.OS === 'web') break;
-            if (e.kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-            else if (e.kind === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-            else if (e.kind === 'selection') Haptics.selectionAsync().catch(() => {});
-            else
-              Haptics.impactAsync(
-                e.kind === 'heavy' ? Haptics.ImpactFeedbackStyle.Heavy : e.kind === 'medium' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
-              ).catch(() => {});
-            break;
-          case 'callout':
-            showCallout({ coach: e.coach, text: e.text });
-            break;
-          case 'hurt':
-            setHearts(Math.max(0, e.hearts));
-            break;
-          case 'power':
-            showBanner(POWER_NAMES[e.kind].toUpperCase() + '!');
-            if (e.kind !== 'bubble') showCallout({ coach: 'leo', text: POWER_TIPS[e.kind] }, 2200);
-            break;
-          case 'bubble_pop':
-            showBanner('POP!');
-            break;
-          case 'rescue':
-            setFriends((f) => [...f, e.dog]);
-            showCallout({ dog: e.dog, text: `${DOG_NAMES[e.dog]} is free! Woof!` }, 2200);
-            break;
-          case 'checkpoint':
-            break;
-          case 'boss_start':
-            setBoss({ hits: 0, needed: world.boss?.hitsNeeded ?? 3 });
-            showBanner((level.boss?.name ?? BOSS_NAME).toUpperCase() + '!');
-            break;
-          case 'boss_hit':
-            setBoss({ hits: e.hits, needed: e.needed });
-            break;
-          case 'boss_defeated':
-            showBanner('GOT THE CAKE!');
-            break;
-          case 'won':
-            if (!doneRef.current) {
-              doneRef.current = true;
-              setRun('won');
-              onWin(levelResult(world));
-            }
-            break;
-          case 'gameover':
-            setRun('gameover');
-            break;
-          case 'music':
-            playMusic(e.name);
-            break;
-        }
-      }
+  const showCallout = useCallback(
+    (c: Omit<Callout, 'key'>, ms = 2800) => {
+      hud.set({ callout: { ...c, key: ++keys.current.callout } });
+      const t = timers.current;
+      if (t.callout) clearTimeout(t.callout);
+      t.callout = setTimeout(() => hud.set({ callout: null }), ms);
     },
-    [level.boss?.name, onWin, setRun, showBanner, showCallout, world],
+    [hud],
+  );
+  const showBanner = useCallback(
+    (text: string) => {
+      hud.set({ banner: { key: ++keys.current.banner, text } });
+      const t = timers.current;
+      if (t.banner) clearTimeout(t.banner);
+      t.banner = setTimeout(() => hud.set({ banner: null }), 1800);
+    },
+    [hud],
   );
 
-  // The game loop: fixed 60 Hz steps on the JS thread, then one frame of draw ops for the UI thread.
+  // An effect event: it always sees the latest props (onWin is a new function on every render of the
+  // screen) without being a dependency, so the game loop below never tears down and restarts mid-run.
+  const handleEvents = useEffectEvent((events: GameEvent[]) => {
+    for (const e of events) {
+      switch (e.type) {
+        case 'sfx':
+          playSfx(e.name);
+          break;
+        case 'haptic':
+          if (Platform.OS === 'web') break;
+          if (e.kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          else if (e.kind === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+          else if (e.kind === 'selection') Haptics.selectionAsync().catch(() => {});
+          else
+            Haptics.impactAsync(
+              e.kind === 'heavy' ? Haptics.ImpactFeedbackStyle.Heavy : e.kind === 'medium' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+            ).catch(() => {});
+          break;
+        case 'callout':
+          showCallout({ coach: e.coach, text: e.text });
+          break;
+        case 'hurt':
+          hud.set({ hearts: Math.max(0, e.hearts) });
+          break;
+        case 'power':
+          showBanner(POWER_NAMES[e.kind].toUpperCase() + '!');
+          if (e.kind !== 'bubble') showCallout({ coach: 'leo', text: POWER_TIPS[e.kind] }, 2200);
+          break;
+        case 'bubble_pop':
+          showBanner('POP!');
+          break;
+        case 'rescue':
+          hud.set({ friends: [...hud.get().friends, e.dog] });
+          showCallout({ dog: e.dog, text: `${DOG_NAMES[e.dog]} is free! Woof!` }, 2200);
+          break;
+        case 'checkpoint':
+          break;
+        case 'boss_start':
+          hud.set({ boss: { hits: 0, needed: world.boss?.hitsNeeded ?? 3 } });
+          showBanner((level.boss?.name ?? BOSS_NAME).toUpperCase() + '!');
+          break;
+        case 'boss_hit':
+          hud.set({ boss: { hits: e.hits, needed: e.needed } });
+          break;
+        case 'boss_defeated':
+          showBanner('GOT THE CAKE!');
+          break;
+        case 'won':
+          if (!doneRef.current) {
+            doneRef.current = true;
+            setRun('won');
+            onWin(levelResult(world));
+          }
+          break;
+        case 'gameover':
+          setRun('gameover');
+          break;
+        case 'music':
+          playMusic(e.name);
+          break;
+      }
+    }
+  });
+
+  // The game loop: fixed 60 Hz steps on the JS thread, then one list of draw ops for the UI thread.
   useEffect(() => {
-    const atlasData = atlas as unknown as AtlasData;
     const out = new OpList();
     const pup: PupProbe = { legA: 0, legB: 0, legT: 0, tuckT: 0 };
+    const setup: FrameSetup = {
+      atlas: atlas as unknown as AtlasData,
+      background: { image: ATLAS_PAGES.length, w: ROOM_SIZE.w, h: ROOM_SIZE.h },
+      k,
+      screenW: width,
+      screenH: height,
+      reduceMotion: false,
+      probe: pup,
+    };
     let raf = 0;
     let last = 0;
     let acc = 0;
     let lastBones = -1;
-    let powerTick = 0;
+    let drawn = false;
+    let barsOn = false;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (!last) last = now;
-      const elapsed = Math.min(0.1, (now - last) / 1000);
+      let elapsed = last ? (now - last) / 1000 : 0;
       last = now;
       const s = runState.current;
       if (s !== 'running' && s !== 'won') {
         acc = 0;
-        if (s !== 'ready' || out.count > 0) return;
         // Before "Go!", draw the still scene once so the count-in has something behind it.
+        if (s !== 'ready' || drawn) return;
       }
+      if (Math.abs(elapsed - STEP) < SNAP) elapsed = STEP;
       acc += elapsed;
       let steps = 0;
-      while (s !== 'ready' && acc >= STEP && steps < 4) {
+      while (s !== 'ready' && acc >= STEP && steps < MAX_STEPS) {
         const i = input.current;
         stepWorld(world, i, STEP);
+        stepCount.current++;
         i.jumpPressed = false;
         i.slidePressed = false;
         i.barkPressed = false;
         acc -= STEP;
         steps++;
       }
-      if (steps === 4) acc = 0;
+      if (acc >= STEP) acc = 0;
       if (steps === 0 && s !== 'ready') return;
+      drawn = true;
       // One op list per step; the canvas draws the frames in between (see GameCanvasImpl).
-      const t0 = __DEV__ ? performance.now() : 0;
-      buildFrame(world, {
-        atlas: atlasData,
-        background: { image: ATLAS_PAGES.length, w: ROOM_SIZE.w, h: ROOM_SIZE.h },
-        k,
-        screenW: width,
-        screenH: height,
-        reduceMotion: reduceMotion.current,
-        probe: pup,
-      }, out);
-      const t1 = __DEV__ ? performance.now() : 0;
-      ops.set(out.toArray());
       const p = probe.current;
+      const t0 = p ? performance.now() : 0;
+      setup.reduceMotion = reduceMotion.current;
+      buildFrame(world, setup, out);
+      const t1 = p ? performance.now() : 0;
+      ops.set(out.handOff(stepCount.current, world.prev.t === world.t));
       if (p) {
         if (!p.until) p.until = now + 1000;
         p.rows.push({ dt: elapsed, steps, legA: pup.legA, legB: pup.legB, legT: pup.legT, tuckT: pup.tuckT, buildMs: t1 - t0, setMs: performance.now() - t1, ops: out.count });
@@ -334,21 +526,24 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       }
       const events = drainEvents(world);
       if (events.length) handleEvents(events);
-      // The power chips tick at a tenth of the frame rate; they only need to drain visibly.
+      // Power chips appear and go as powers start and end; their bars drain on the UI thread.
       const pw = world.hero.powers;
-      powerTick = (powerTick + 1) % 6;
-      if (powerTick === 0) {
-        setPowers((old) => (old.mega === pw.mega && old.turbo === pw.turbo && old.ball === pw.ball && old.bubble === pw.bubble ? old : { mega: pw.mega, turbo: pw.turbo, ball: pw.ball, bubble: pw.bubble }));
+      const on = hud.get().powers;
+      if (on.mega !== pw.mega > 0 || on.turbo !== pw.turbo > 0 || on.ball !== pw.ball > 0 || on.bubble !== pw.bubble) {
+        hud.set({ powers: { mega: pw.mega > 0, turbo: pw.turbo > 0, ball: pw.ball > 0, bubble: pw.bubble } });
       }
+      const timed = pw.mega > 0 || pw.turbo > 0 || pw.ball > 0;
+      if (timed || barsOn) powerLeft.set({ mega: pw.mega, turbo: pw.turbo, ball: pw.ball });
+      barsOn = timed;
       if (world.bones !== lastBones) {
         if (lastBones >= 0) boneBump.set(withSequence(withTiming(1.3, { duration: 60 }), withSpring(1, springs.bouncy)));
         lastBones = world.bones;
-        setBones(world.bones);
+        hud.set({ bones: world.bones });
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [boneBump, handleEvents, height, k, ops, width, world]);
+  }, [boneBump, height, hud, k, ops, powerLeft, width, world]);
 
   const togglePause = () => {
     const s = runState.current;
@@ -389,7 +584,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       jumpTouch.current = { id: String(t.identifier), y: t.pageY, slid: false };
       input.current.jumpPressed = true;
       input.current.jumpHeld = true;
-      if (__DEV__ && !probedJump.current && !probe.current) {
+      if (LEGS_PROBE && __DEV__ && !probedJump.current && !probe.current) {
         probedJump.current = true;
         probe.current = { label: 'first jump', rows: [], until: 0 };
       }
@@ -426,7 +621,8 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const retry = () => {
     continueFromCheckpoint(world);
     drainEvents(world);
-    setHearts(world.hero.hearts);
+    // A boss that went back to waiting makes its entrance again, bar and all.
+    hud.set({ hearts: world.hero.hearts, boss: world.boss && world.boss.phase !== 'waiting' ? hud.get().boss : null });
     setRun('running');
     playMusic(world.phase === 'boss' ? 'music_boss' : level.music);
   };
@@ -451,46 +647,18 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchEnd}
       >
-        <GameCanvas ops={ops} width={width} height={height} background={ROOMS[level.background]} />
+        <GameCanvas ops={ops} width={width} height={height} background={ROOMS[level.background]} onReady={markArtReady} />
       </View>
 
       {/* HUD */}
       <View pointerEvents="box-none" style={[styles.hud, { left: pad, top: 12 }]}>
-        <View style={styles.hudRow} pointerEvents="none">
-          {Array.from({ length: world.maxHearts }, (_, i) => (
-            <Heart key={i} full={i < hearts} />
-          ))}
-        </View>
-        <Animated.View style={[styles.chip, boneStyle]} pointerEvents="none">
-          <Image source={HUD.bone} style={styles.boneIcon} />
-          <Text style={styles.chipText}>{bones}</Text>
-        </Animated.View>
-        <View style={styles.hudRow} pointerEvents="none">
-          {friends.map((d) => (
-            <Image key={d} source={DOGS[d]} style={styles.friend} />
-          ))}
-        </View>
-        <View style={styles.hudRow} pointerEvents="none">
-          {powers.mega > 0 && <PowerChip kind="mega" left={powers.mega} max={POWER_MAX.mega + boosts.megaBonus} />}
-          {powers.turbo > 0 && <PowerChip kind="turbo" left={powers.turbo} max={POWER_MAX.turbo + boosts.turboBonus} />}
-          {powers.ball > 0 && <PowerChip kind="ball" left={powers.ball} max={POWER_MAX.ball} />}
-          {powers.bubble > 0 && <PowerChip kind="bubble" left={powers.bubble} max={1} />}
-        </View>
+        <HudHearts hud={hud} max={world.maxHearts} />
+        <HudBones hud={hud} bump={boneBump} />
+        <HudFriends hud={hud} />
+        <HudPowers hud={hud} left={powerLeft} megaMax={POWER_MAX.mega + boosts.megaBonus} turboMax={POWER_MAX.turbo + boosts.turboBonus} />
       </View>
 
-      {boss && (
-        <Animated.View entering={FadeIn} pointerEvents="none" style={[styles.bossBar, { bottom: 14 }]}>
-          <Image source={HUD.cake} style={styles.bossCake} />
-          <View>
-            <Text style={styles.bossName}>{level.boss?.name ?? BOSS_NAME}</Text>
-            <View style={styles.hudRow}>
-              {Array.from({ length: boss.needed }, (_, i) => (
-                <View key={i} style={[styles.pip, i < boss.needed - boss.hits ? styles.pipFull : null]} />
-              ))}
-            </View>
-          </View>
-        </Animated.View>
-      )}
+      <HudBoss hud={hud} name={level.boss?.name ?? BOSS_NAME} />
 
       <Pressable
         accessibilityRole="button"
@@ -520,30 +688,9 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         </View>
       </Animated.View>
 
-      {callout && (
-        <Animated.View
-          key={`callout-${callout.key}`}
-          entering={SlideInLeft.springify().damping(16)}
-          exiting={SlideOutLeft.duration(200)}
-          pointerEvents="none"
-          style={[styles.callout, { left: pad + 150, top: 8 }]}
-        >
-          <Image
-            source={callout.coach ? COACH_CHEER[callout.coach] : DOGS[callout.dog!]}
-            style={callout.coach ? styles.calloutCoach : styles.calloutDog}
-            resizeMode="contain"
-          />
-          <View style={styles.bubble}>
-            <Text style={styles.bubbleText}>{callout.text}</Text>
-          </View>
-        </Animated.View>
-      )}
+      <HudCallout hud={hud} left={pad + 150} />
 
-      {banner && (
-        <Animated.View key={`banner-${banner.key}`} entering={ZoomIn.springify().damping(10)} exiting={FadeOut} pointerEvents="none" style={styles.bannerWrap}>
-          <Text style={styles.banner}>{banner.text}</Text>
-        </Animated.View>
-      )}
+      <HudBanner hud={hud} />
 
       {countIn && (
         <Animated.View key={`count-${countIn}`} entering={ZoomIn.springify().damping(9)} exiting={FadeOut.duration(150)} pointerEvents="none" style={styles.bannerWrap}>

@@ -3,8 +3,9 @@ import { CHAPTER_1 } from '../../level/chapter1';
 import { MAX_STRIDE_SPEED, STEP, STRIDE_LEN } from '../../constants';
 import { createWorld, stepWorld } from '../../sim/world';
 import { NO_INPUT, type Hero } from '../../sim/types';
-import { AIR_DOWN, AIR_UP, GALLOP, airLeg, gallopBody, gallopLegIndex, heroPose, landSquash, legFrames } from '../pupPose';
-import { STRIDE, buildFrame, puppetLayers, type AtlasData } from '../buildFrame';
+import { AIR_DOWN, AIR_UP, GALLOP, airLeg, framesAt, gallopBody, gallopLegIndex, heroPose, landSquash, legFrames } from '../pupPose';
+import { STRIDE, buildFrame, puppetLayers, type AtlasData, type PupLayer } from '../buildFrame';
+import atlasJson from '../atlas.json';
 
 const hero = (over: Partial<Hero> = {}): Hero => ({
   x: 0,
@@ -15,6 +16,8 @@ const hero = (over: Partial<Hero> = {}): Hero => ({
   airTime: 0,
   jumpBuffer: 0,
   slideBuffer: 0,
+  slideQueued: false,
+  hurtPose: 0,
   jumpsUsed: 0,
   sliding: 0,
   barking: 0,
@@ -119,17 +122,36 @@ describe('gallop', () => {
 });
 
 describe('puppet layers', () => {
-  it('always pushes six layers, two stride frames showing on the ground', () => {
+  const isLegs = (l: PupLayer) => l.strip === 0 || !!l.name?.startsWith('pup_leg');
+
+  it('always pushes four layers, the stride strip showing the two frames around its index on the ground', () => {
     const p = heroPose(hero(), 0.33, STEP);
     const layers = puppetLayers(p);
-    expect(layers.length).toBe(6);
-    const legs = layers.filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
-    expect(legs.map((l) => l.name)).toEqual([`pup_leg_${p.legA}`, `pup_leg_${p.legB}`]);
+    expect(layers.length).toBe(4);
+    const legs = layers.filter((l) => l.alpha > 0.01 && isLegs(l));
+    expect(legs).toHaveLength(1);
+    expect(legs[0].index).toBe(p.legIndex);
+    const f = framesAt(legs[0].index!, PUP_LEG_FRAMES);
+    expect([f.a, f.b]).toEqual([p.legA, p.legB]);
   });
 
   it('rests on all four paws when blocked', () => {
     const layers = puppetLayers(heroPose(hero({ restBlend: 1 }), 0.3, STEP));
-    expect(layers.filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg')).map((l) => l.name)).toEqual(['pup_leg_rest']);
+    expect(layers.filter((l) => l.alpha > 0.01 && isLegs(l)).map((l) => l.name)).toEqual(['pup_leg_rest']);
+  });
+
+  it('spells the stride strip out as the two stacked frames for tools', () => {
+    const w = createWorld({ ...CHAPTER_1, enemies: [], pickups: [], cages: [], boss: undefined }, 640);
+    for (let i = 0; i < 20; i++) stepWorld(w, NO_INPUT, STEP);
+    const p = heroPose(w.hero, w.hero.stride, STEP);
+    const real = { atlas: atlasJson as unknown as AtlasData, background: null, k: 1, screenW: 640, screenH: 360 };
+    const data = buildFrame(w, real).data;
+    const names: string[] = [];
+    for (let i = 0; i < data.length; i += STRIDE) {
+      const hit = Object.entries(real.atlas.frames).find(([, f]) => f.every((v, j) => v === data[i + j]));
+      if (hit && hit[0].startsWith('pup_leg_') && hit[0] !== 'pup_leg_rest') names.push(hit[0]);
+    }
+    expect(names).toEqual([`pup_leg_${p.legA}`, `pup_leg_${p.legB}`]);
   });
 });
 
