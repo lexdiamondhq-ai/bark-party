@@ -35,7 +35,7 @@ import { GameCanvas } from './render/GameCanvas';
 import { ATLAS_PAGES } from './render/atlasImages';
 import atlas from './render/atlas.json';
 import { buildFrame, OpList, type AtlasData, type FrameSetup, type PupProbe } from './render/buildFrame';
-import { LEGS_PROBE } from './render/devProbe';
+import { FRAME_STATS, LEGS_PROBE, type UiStats } from './render/devProbe';
 import { NO_INPUT, type GameEvent, type Input, type PowerKind } from './sim/types';
 import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, setReduceMotion, snapPrev, stepWorld, type LevelResult } from './sim/world';
 import type { DogId } from './sprites';
@@ -322,6 +322,8 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const [countIn, setCountIn] = useState<'ready' | 'go' | null>('ready');
   const [muted, setMutedState] = useState(isMuted());
   const [artReady, setArtReady] = useState(false);
+  const uiStats = useSharedValue<UiStats>({ fps: 0, max: 0, over: 0 });
+  const [statsText, setStatsText] = useState('');
   const markArtReady = useCallback(() => setArtReady(true), []);
   const setRun = useCallback((s: RunState) => {
     runState.current = s;
@@ -483,11 +485,34 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
     let lastBones = -1;
     let drawn = false;
     let barsOn = false;
+    let jsStart = 0;
+    let jsFrames = 0;
+    let jsMax = 0;
+    let jsOver = 0;
+    let steps0 = 0;
+    let steps2 = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       let elapsed = last ? (now - last) / 1000 : 0;
       last = now;
       const s = runState.current;
+      if (FRAME_STATS) {
+        const gap = elapsed * 1000;
+        jsFrames++;
+        if (gap > jsMax) jsMax = gap;
+        if (gap > 25) jsOver++;
+        if (!jsStart) jsStart = now;
+        else if (now - jsStart >= 1000) {
+          const u = uiStats.get();
+          setStatsText(`JS ${jsFrames}Hz worst ${jsMax.toFixed(0)}ms >25ms:${jsOver} 0step:${steps0} 2step:${steps2} | UI ${u.fps}Hz worst ${u.max}ms >25ms:${u.over} | ops ${out.count} ${s}`);
+          jsStart = now;
+          jsFrames = 0;
+          jsMax = 0;
+          jsOver = 0;
+          steps0 = 0;
+          steps2 = 0;
+        }
+      }
       if (s !== 'running' && s !== 'won') {
         acc = 0;
         // Before "Go!", draw the still scene once so the count-in has something behind it.
@@ -507,6 +532,10 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         steps++;
       }
       if (acc >= STEP) acc = 0;
+      if (s === 'running') {
+        if (steps === 0) steps0++;
+        else if (steps >= 2) steps2++;
+      }
       if (steps === 0 && s !== 'ready') return;
       drawn = true;
       // One op list per step; the canvas draws the frames in between (see GameCanvasImpl).
@@ -543,7 +572,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [boneBump, height, hud, k, ops, powerLeft, width, world]);
+  }, [boneBump, height, hud, k, ops, powerLeft, uiStats, width, world]);
 
   const togglePause = () => {
     const s = runState.current;
@@ -647,8 +676,13 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchEnd}
       >
-        <GameCanvas ops={ops} width={width} height={height} background={ROOMS[level.background]} onReady={markArtReady} />
+        <GameCanvas ops={ops} width={width} height={height} background={ROOMS[level.background]} onReady={markArtReady} uiStats={FRAME_STATS ? uiStats : undefined} />
       </View>
+      {FRAME_STATS && statsText ? (
+        <Text pointerEvents="none" style={[styles.stats, { left: pad }]}>
+          {statsText}
+        </Text>
+      ) : null}
 
       {/* HUD */}
       <View pointerEvents="box-none" style={[styles.hud, { left: pad, top: 12 }]}>
@@ -741,6 +775,17 @@ function Heart({ full }: { full: boolean }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.velvetNight, overflow: 'hidden' },
+  stats: {
+    position: 'absolute',
+    left: 8,
+    bottom: 4,
+    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
+    fontSize: 10,
+    color: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 4,
+    borderRadius: 3,
+  },
   hud: { position: 'absolute', gap: 6 },
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   heart: { width: 34, height: 31, resizeMode: 'contain' },

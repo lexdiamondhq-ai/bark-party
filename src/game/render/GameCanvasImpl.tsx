@@ -15,7 +15,7 @@ import { runOnJS, useFrameCallback, useSharedValue, type SharedValue } from 'rea
 import atlas from './atlas.json';
 import { ATLAS_PAGES } from './atlasImages';
 import { HEADER, STRIP_AT, stripTable, type AtlasData } from './buildFrame';
-import { LEGS_PROBE } from './devProbe';
+import { LEGS_PROBE, type UiStats } from './devProbe';
 import { advancePlayhead, drawOps, newPlayhead, type DrawScratch, type Playhead } from './drawOps';
 import { loadAllArt, loadedArt } from './gameArt';
 
@@ -27,6 +27,8 @@ type Props = {
   background: number;
   /** Called once every picture the level draws with has loaded (over a dev tunnel that can take seconds). */
   onReady?: () => void;
+  /** Frame readout for the dev overlay: refreshed once a second from the UI thread. */
+  uiStats?: SharedValue<UiStats>;
 };
 
 /** Pictures stay alive this many frames after they are replaced, then are freed (see the frame callback). */
@@ -71,6 +73,11 @@ interface Clock {
   frames: number;
   start: number;
   logged: boolean;
+  lastTs: number;
+  statsStart: number;
+  statsFrames: number;
+  statsMax: number;
+  statsOver: number;
 }
 
 /**
@@ -79,7 +86,7 @@ interface Clock {
  * between where (and how) it was one step ago and where it is now, so a 120 Hz screen gets a fresh
  * picture every frame and nothing ever draws at a stale blend.
  */
-export const GameCanvas = memo(function GameCanvas({ ops, width, height, background, onReady }: Props) {
+export const GameCanvas = memo(function GameCanvas({ ops, width, height, background, onReady, uiStats }: Props) {
   const art = useArt(background);
   const images = art ?? NO_ART;
 
@@ -101,14 +108,36 @@ export const GameCanvas = memo(function GameCanvas({ ops, width, height, backgro
     frames: 0,
     start: 0,
     logged: !(LEGS_PROBE && __DEV__),
+    lastTs: 0,
+    statsStart: 0,
+    statsFrames: 0,
+    statsMax: 0,
+    statsOver: 0,
   });
   useFrameCallback((info) => {
     'worklet';
     const c = clock.value;
     const list = ops.value;
     // Nothing is drawn until every picture is in: the first frame shows the whole scene, the whole pup.
-    if (list.length < HEADER || images.length === 0) return;
     const now = info.timestamp;
+    if (uiStats) {
+      if (c.lastTs) {
+        const gap = now - c.lastTs;
+        c.statsFrames++;
+        if (gap > c.statsMax) c.statsMax = gap;
+        if (gap > 25) c.statsOver++;
+      }
+      c.lastTs = now;
+      if (!c.statsStart) c.statsStart = now;
+      else if (now - c.statsStart >= 1000) {
+        uiStats.set({ fps: c.statsFrames, max: Math.round(c.statsMax), over: c.statsOver });
+        c.statsStart = now;
+        c.statsFrames = 0;
+        c.statsMax = 0;
+        c.statsOver = 0;
+      }
+    }
+    if (list.length < HEADER || images.length === 0) return;
     const p = c.play;
     advancePlayhead(p, now, list);
     let art = 0;
