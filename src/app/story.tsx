@@ -32,7 +32,7 @@ function sceneFor(scene: string): { panels: StoryPanel[]; next: { pathname: '/pl
 
 const CPS = 48; // typewriter characters per second
 /** Room the stage leaves for the text card at the bottom, and the breathing room above the tallest head. */
-const CARD_SPACE = 124;
+const CARD_SPACE = 134;
 const HEAD_ROOM = 10;
 
 /** Each actor's height as a share of the stage, and its width per unit of height (the art's own proportions). */
@@ -130,6 +130,11 @@ export default function Story() {
 /** Types one line at CPS characters a second, re-rendering only itself. Tap skips to the end through `skipRef`. */
 function Typewriter({ text, onDone, skipRef }: { text: string; onDone: () => void; skipRef: React.MutableRefObject<(() => void) | null> }) {
   const [n, setN] = useState(0);
+  // The latest onDone lives in a ref so a re-render of the screen (a rotation, a resize) never restarts the typing.
+  const latest = useRef(onDone);
+  useEffect(() => {
+    latest.current = onDone;
+  }, [onDone]);
   useEffect(() => {
     const start = Date.now();
     let finished = false;
@@ -138,7 +143,7 @@ function Typewriter({ text, onDone, skipRef }: { text: string; onDone: () => voi
       finished = true;
       clearInterval(id);
       setN(text.length);
-      onDone();
+      latest.current();
     };
     const id = setInterval(() => {
       const k = Math.min(text.length, Math.floor(((Date.now() - start) / 1000) * CPS));
@@ -151,7 +156,7 @@ function Typewriter({ text, onDone, skipRef }: { text: string; onDone: () => voi
       clearInterval(id);
       if (skipRef.current === finish) skipRef.current = null;
     };
-  }, [text, onDone, skipRef]);
+  }, [text, skipRef]);
   return <Text style={styles.line}>{text.slice(0, n)}</Text>;
 }
 
