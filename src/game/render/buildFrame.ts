@@ -78,6 +78,7 @@ export const K = {
   cakeGone: 20,
   speedLine: 21,
   particle: 22,
+  landMark: 23,
 } as const;
 
 export class OpList {
@@ -391,7 +392,7 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   // Where each thrown acorn will land: a shadow ring on the floor that grows and darkens as it drops.
   for (const a of world.acorns) {
     if (a.landT <= 0 || a.rolling || a.reflected || !visible(a.landX)) continue;
-    out.cur = key(K.acorn, (a.id ?? 0) + 500_000);
+    out.cur = key(K.landMark, a.id ?? 0);
     const left = v.ago ? Math.min(WARN.acornFlight, a.landT + STEP) : a.landT;
     const u = 1 - left / WARN.acornFlight;
     sprite('land_mark', a.landX, 1, { scale: 0.6 + 0.55 * u, alpha: 0.5 + 0.5 * u });

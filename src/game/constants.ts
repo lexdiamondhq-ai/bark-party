@@ -50,8 +50,8 @@ export const WARN = {
   /** Seconds the acorn is in the air, and how close (ahead of the pup) a live acorn blocks the next throw. */
   acornFlight: 1.1,
   acornSpacing: 320,
-  /** Throwers start their wind-up when the pup is this close (just inside the view), so the first acorn
-   *  leaves while the pup is still far off and the arc has room to read. */
+  /** Throwers start their wind-up when the pup is this close, or as soon as they are in view on a narrower
+   *  screen, so the first acorn leaves while the pup is still far off and the arc has room to read. */
   throwRange: 560,
 } as const;
 

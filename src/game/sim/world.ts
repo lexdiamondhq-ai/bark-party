@@ -772,7 +772,7 @@ function stepEnemies(world: World, dt: number) {
             e.throwing = 0.3;
             throwAcorn(world, e.x - 16, e.y + 34, h, false);
           }
-        } else if (dx > 40 && dx < WARN.throwRange) {
+        } else if (dx > 40 && dx < Math.min(WARN.throwRange, world.viewW * (1 - HERO_SCREEN_X) - 10)) {
           e.cooldown -= dt;
           // One acorn at a time: never throw while a live one is still ahead of the pup.
           const busy = world.acorns.some((a) => a.alive && !a.reflected && a.x - h.x > -20 && a.x - h.x < WARN.acornSpacing);
@@ -881,10 +881,9 @@ function stepEnemies(world: World, dt: number) {
   world.enemies = world.enemies.filter((e) => e.y > -300 && e.x > h.x - world.viewW * 1.5);
 }
 
-function throwAcorn(world: World, x: number, y: number, target: Hero, golden: boolean) {
+function throwAcorn(world: World, x: number, y: number, target: Hero, golden: boolean, tFly: number = WARN.acornFlight) {
   // Aim where the dog will be when the acorn comes down to its head height, in a high, slow arc
   // the player can read, with a mark on the floor where it lands.
-  const tFly = WARN.acornFlight;
   const tx = target.x + world.level.runSpeed * tFly;
   const ty = target.y + 30;
   world.acorns.push({
@@ -1089,7 +1088,8 @@ function stepBoss(world: World, dt: number) {
       if (b.hits === 0 && b.pattern < 5) emit(world, { type: 'callout', coach: 'leo', text: 'Golden acorn! Bark it back!' });
       b.throwT = 1.5;
     } else {
-      throwAcorn(world, b.x - 30, b.y + 90, h, false);
+      // The boss keeps its quicker 0.8 s lob: it is always on screen, and the fight has its own rhythm.
+      throwAcorn(world, b.x - 30, b.y + 90, h, false, 0.8);
       b.throwT = Math.max(0.75, 1.15 - b.hits * 0.15);
     }
   }

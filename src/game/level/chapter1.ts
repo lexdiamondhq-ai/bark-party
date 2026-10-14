@@ -69,7 +69,7 @@ export const CHAPTER_1: LevelDef = {
     { type: 'thrower', x: 5950 },
     { type: 'runner', x: 6300, y: 60 },
     { type: 'runner', x: 7060, speed: 140 },
-    { type: 'thrower', x: 7520, y: 50, every: 1.5 },
+    { type: 'thrower', x: 7560, y: 50, every: 1.5 },
   ],
   pickups: [
     ...bones(250, 4, 50),
