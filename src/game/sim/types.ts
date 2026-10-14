@@ -54,6 +54,10 @@ export interface Hero {
   jumpBuffer: number;
   /** A swipe down in the air dives and then slides on landing. */
   slideBuffer: number;
+  /** A swipe made during a hit-stop, played on the first step after it (taps and barks have their own buffers). */
+  slideQueued: boolean;
+  /** Seconds left of the wobble after losing a heart (a respawn's blink has no wobble). */
+  hurtPose: number;
   jumpsUsed: number;
   sliding: number;
   barking: number;
@@ -160,7 +164,10 @@ export interface Acorn extends Prev {
   spin: number;
   /** Where a thrown acorn comes down and how long until it does, for the landing mark on the floor. */
   landX: number;
+  /** Never more than WARN.acornFlight: the mark holds still until the last WARN.acornFlight seconds of the fall. */
   landT: number;
+  /** Seconds until it really reaches the floor (past the pup's head it keeps falling). */
+  floorT: number;
 }
 
 export interface Pickup {

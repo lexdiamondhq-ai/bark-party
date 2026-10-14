@@ -165,6 +165,8 @@ function makeHero(x: number, vx: number, hearts: number, bubble = 0): Hero {
     airTime: 0,
     jumpBuffer: 0,
     slideBuffer: 0,
+    slideQueued: false,
+    hurtPose: 0,
     jumpsUsed: 0,
     sliding: 0,
     barking: 0,
@@ -309,11 +311,13 @@ export function stepWorld(world: World, input: Input, dtRaw: number): void {
   const dt = Math.min(dtRaw, 1 / 30);
   snapPrev(world);
   world.trailMoved = false;
-  if (world.hitstop > 0) {
-    // Frozen for a few frames after a hit. Presses made now are kept for when it ends.
-    world.hitstop -= dt;
+  // Frozen for a few frames after a hit. Presses made now are kept for when it ends. A freeze of
+  // 0.05 s is exactly three steps; the float remainder (about 1e-17) must not buy a fourth.
+  if (world.hitstop > 1e-6) {
+    world.hitstop = Math.max(0, world.hitstop - dt);
     if (input.jumpPressed) world.hero.jumpBuffer = PHYS.jumpBuffer;
     if (input.barkPressed) world.hero.barkBuffer = PHYS.barkBuffer;
+    if (input.slidePressed) world.hero.slideQueued = true;
     return;
   }
   world.t += dt;
@@ -322,6 +326,12 @@ export function stepWorld(world: World, input: Input, dtRaw: number): void {
 
   if (world.phase === 'respawn') {
     if (world.phaseT > 0.9) respawn(world);
+    else {
+      // The wagon is still being towed: it follows the pup's path down into the pit instead of hanging in mid-air.
+      world.trail.unshift({ x: world.hero.x, y: world.hero.y });
+      world.trailMoved = true;
+      if (world.trail.length > TRAIL_MAX) world.trail.length = TRAIL_MAX;
+    }
     stepParticles(world, dt);
     return;
   }
@@ -406,6 +416,9 @@ function stepHero(world: World, input: Input, dt: number) {
   h.sinceLand += dt;
   h.jumpBuffer = Math.max(0, h.jumpBuffer - dt);
   h.slideBuffer = Math.max(0, h.slideBuffer - dt);
+  h.hurtPose = Math.max(0, h.hurtPose - dt);
+  const slidePressed = input.slidePressed || h.slideQueued;
+  h.slideQueued = false;
 
   // Zoomies: coming out of a slide on the ground gives a burst of speed, so the slide is a move, not just a dodge.
   if (wasSliding && h.sliding === 0 && h.onGround && !won) {
@@ -423,7 +436,7 @@ function stepHero(world: World, input: Input, dt: number) {
       h.barkBuffer = 0;
       bark(world);
     }
-    if (input.slidePressed) {
+    if (slidePressed) {
       if (h.onGround) {
         h.sliding = PHYS.slideTime;
         sfx(world, 'slide');
@@ -487,9 +500,19 @@ function stepHero(world: World, input: Input, dt: number) {
   h.vy = Math.max(-PHYS.maxFall, h.vy - PHYS.gravity * dt);
   const prevY = h.y;
   let ny = h.y + h.vy * dt;
-  const ground = groundBelow(world, h.x, halfW * 0.8, prevY + PHYS.landTolerance * (h.vy <= 0 ? 1 : 0));
+  let ground = groundBelow(world, h.x, halfW * 0.8, prevY + PHYS.landTolerance * (h.vy <= 0 ? 1 : 0));
+  // The side check above lets the paws over a solid piece's corner while they are within 4 units of its top,
+  // a little before groundBelow counts the piece: its top has to catch them there, or the dog sinks into the box.
+  let reach = 1;
+  for (const p of world.platforms) {
+    if (!p.solid || h.x + halfW <= p.x + 2 || h.x - halfW * 0.8 >= p.x + p.w - 6) continue;
+    if (prevY >= p.top - 5 && (ground === null || p.top >= ground)) {
+      ground = p.top;
+      reach = 5;
+    }
+  }
   const wasOnGround = h.onGround;
-  if (ground !== null && h.vy <= 0 && ny <= ground && prevY >= ground - 1) {
+  if (ground !== null && h.vy <= 0 && ny <= ground && prevY >= ground - reach) {
     ny = ground;
     if (!wasOnGround) {
       // The harder the landing, the deeper the squash, the bigger the dust and the more the camera thumps.
@@ -532,7 +555,7 @@ function stepHero(world: World, input: Input, dt: number) {
 
   // Pose for the renderer.
   if (won) h.pose = h.vx > 5 ? 'run' : 'cheer';
-  else if (h.invuln > PHYS.hurtInvuln - 0.35) h.pose = 'hurt';
+  else if (h.hurtPose > 0) h.pose = 'hurt';
   else if (h.barking > 0) h.pose = 'bark';
   else if (h.sliding > 0) h.pose = 'slide';
   else if (!h.onGround) h.pose = h.vy > 0 ? 'jump' : 'fall';
@@ -561,7 +584,7 @@ function bark(world: World) {
     // Ball Mouth: the bark comes out as tennis balls.
     const n = world.boosts.balls;
     for (let i = 0; i < n; i++) {
-      world.balls.push({ x: h.x + 30 * heroScale(h), y: h.y + 34 * heroScale(h) + (n > 1 ? (i - (n - 1) / 2) * 16 : 0), vx: POWER.ballSpeed + h.vx, t: 0, alive: true });
+      world.balls.push({ id: world.nextId++, x: h.x + 30 * heroScale(h), y: h.y + 34 * heroScale(h) + (n > 1 ? (i - (n - 1) / 2) * 16 : 0), vx: POWER.ballSpeed + h.vx, t: 0, alive: true });
     }
     sfx(world, 'acorn_throw');
     h.barkCooldown = PHYS.barkCooldown * 0.55;
@@ -571,6 +594,7 @@ function bark(world: World) {
   impact(world, 'bark');
   // The "WOOF!" bursts out of the muzzle and grows as it flies.
   world.particles.push({
+    id: world.nextId++,
     sprite: 'bark_burst',
     x: h.x + 56,
     y: h.y + 36,
@@ -662,6 +686,7 @@ function loseHeart(world: World, fell: boolean) {
   h.hearts -= 1;
   world.hurtCount += 1;
   h.invuln = PHYS.hurtInvuln;
+  h.hurtPose = 0.35;
   h.boost = 0;
   impact(world, 'hurt');
   sfx(world, 'hurt');
@@ -698,21 +723,24 @@ function respawn(world: World) {
   world.camLead = 0;
   world.camY = 0;
   world.camX = cameraTarget(world);
+  // A fresh start: a game over leaves the fatal hit's freeze and shake pending, and "Try again" must not replay them.
+  world.hitstop = 0;
+  world.shake.x = 0;
+  world.shake.y = 0;
   snapPrev(world);
 }
 
 /** After a game over: try again from the last balloon post with full hearts. */
 export function continueFromCheckpoint(world: World) {
   world.hero.hearts = world.maxHearts;
-  respawn(world);
-  if (world.boss && world.boss.phase !== 'waiting') {
-    // The boss fight restarts from the top so the chase stays fair.
-    world.boss.hits = 0;
-    world.boss.phase = 'intro';
-    world.boss.t = 0;
-    world.boss.x = world.hero.x + BOSS_LEAD + 200;
-    world.phase = 'boss';
+  const b = world.boss;
+  if (b && world.level.boss && b.phase !== 'waiting') {
+    // The boss fight restarts from the top so the chase stays fair: the last balloon post is well before the
+    // arena, so the boss waits there again and makes its entrance when the pup arrives, rather than chasing
+    // it over the furniture (and a solid box) on the way.
+    Object.assign(b, { hits: 0, phase: 'waiting', t: 0, x: world.level.boss.x + 600, y: 0, vy: 0, throwT: 0, throwing: 0, pattern: 0, hurtT: 0 });
   }
+  respawn(world);
 }
 
 /* ------------------------------------------------------------------ */
@@ -769,8 +797,11 @@ function stepEnemies(world: World, dt: number) {
           e.windup -= dt;
           if (e.windup <= 0) {
             e.windup = 0;
-            e.throwing = 0.3;
-            throwAcorn(world, e.x - 16, e.y + 34, h, false);
+            // If the pup ran past during the lean-back, the squirrel holds on to it rather than lob it backwards.
+            if (dx > 40) {
+              e.throwing = 0.3;
+              throwAcorn(world, e.x - 16, e.y + 34, h, false);
+            }
           }
         } else if (dx > 40 && e.x - e.w / 2 < world.camX + world.viewW - 10) {
           // In view (camera lead included), so the wind-up is always seen from its first frame.
@@ -846,7 +877,9 @@ function stepEnemies(world: World, dt: number) {
     }
     if (e.type === 'vacuum') {
       if (fromAbove) {
-        // Bounce off the vacuum like a trampoline.
+        // Bounce off the vacuum like a trampoline, from its top: a fast fall can reach well into it in one
+        // step, and rising out from inside on the next step counted as running into it.
+        h.y = Math.max(h.y, ey1);
         h.vy = PHYS.stompBounce * 1.25;
         h.jumpsUsed = 1;
         e.pop = 0.18;
@@ -887,18 +920,26 @@ function throwAcorn(world: World, x: number, y: number, target: Hero, golden: bo
   // the player can read, with a mark on the floor where it lands.
   const tx = target.x + world.level.runSpeed * tFly;
   const ty = target.y + 30;
+  const vx = (tx - x) / tFly;
+  const vy = (ty - y) / tFly + (PHYS.gravity * 0.5 * tFly) / 2;
+  // The mark goes where it really comes down: past the pup's head it keeps falling to the floor, which is a
+  // long way further when the pup was up on furniture or mid-jump at the throw.
+  const g = PHYS.gravity * 0.5;
+  const tFloor = (vy + Math.sqrt(vy * vy + 2 * g * Math.max(0, y))) / g;
   world.acorns.push({
+    id: world.nextId++,
     x,
     y,
-    vx: (tx - x) / tFly,
-    vy: (ty - y) / tFly + (PHYS.gravity * 0.5 * tFly) / 2,
+    vx,
+    vy,
     golden,
     rolling: false,
     reflected: false,
     alive: true,
     spin: 0,
-    landX: tx,
-    landT: tFly,
+    landX: x + vx * tFloor,
+    landT: Math.min(WARN.acornFlight, tFloor),
+    floorT: tFloor,
   });
   sfx(world, 'acorn_throw');
 }
@@ -909,7 +950,10 @@ function stepAcorns(world: World, dt: number) {
   for (const a of world.acorns) {
     if (!a.alive) continue;
     a.spin += dt * (a.rolling ? -14 : 10);
-    if (a.landT > 0 && !a.rolling && !a.reflected) a.landT = Math.max(0, a.landT - dt);
+    if (a.landT > 0 && !a.rolling && !a.reflected) {
+      a.floorT = Math.max(0, a.floorT - dt);
+      a.landT = Math.min(WARN.acornFlight, a.floorT);
+    }
     if (a.rolling) {
       a.x += a.vx * dt;
       a.y = 0;
@@ -937,8 +981,11 @@ function stepAcorns(world: World, dt: number) {
       continue;
     }
     // Hit the dog? A slide always goes under a lobbed acorn (the tips promise it); Mega Pup just bats it away.
+    // While the pup blinks after a hit nothing can hurt it, so an acorn flies on through and lands on its mark
+    // instead of vanishing without a sound.
     const big = heroScale(h);
     if (h.sliding > 0 && !a.rolling) continue;
+    if (h.invuln > 0 && h.powers.mega <= 0) continue;
     if (Math.abs(a.x - h.x) < (HERO_BOX.w / 2) * big + 6 && a.y > h.y - 4 && a.y < h.y + heroH * big) {
       a.alive = false;
       if (h.powers.mega > 0) {
@@ -1015,7 +1062,11 @@ function stepBoss(world: World, dt: number) {
     if (h.x >= def.x) {
       b.phase = 'intro';
       b.t = 0;
-      b.x = h.x + BOSS_LEAD + 260;
+      // Just past the right edge of the view (the boss is 120 wide), so it hops in rather than appearing half in view.
+      // It was never drawn where it waited, so the canvas must not blend it in from there.
+      b.x = Math.max(h.x + BOSS_LEAD + 260, world.camX + world.viewW + 70);
+      b.px = b.x;
+      b.py = b.y;
       world.phase = 'boss';
       world.phaseT = 0;
       // Clear the run-up so the chase is the only thing on screen.
@@ -1074,6 +1125,7 @@ function stepBoss(world: World, dt: number) {
     if (step === 3) {
       // Golden acorn rolls along the floor: bark it back!
       world.acorns.push({
+        id: world.nextId++,
         x: b.x - 40,
         y: 0,
         vx: -260,
@@ -1085,6 +1137,7 @@ function stepBoss(world: World, dt: number) {
         spin: 0,
         landX: 0,
         landT: 0,
+        floorT: 0,
       });
       sfx(world, 'acorn_throw');
       if (b.hits === 0 && b.pattern < 5) emit(world, { type: 'callout', coach: 'leo', text: 'Golden acorn! Bark it back!' });
@@ -1109,6 +1162,8 @@ function hitBoss(world: World) {
   if (b.hits >= b.hitsNeeded) {
     b.phase = 'defeated';
     b.t = 0;
+    // Acorns still in the air pop with a sparkle rather than blinking out.
+    for (const a of world.acorns) if (a.alive) spark(world, a.x, a.y, 'star');
     world.acorns = [];
     emit(world, { type: 'boss_defeated' });
     win(world);
@@ -1228,6 +1283,7 @@ function fireCallouts(world: World) {
 function dust(world: World, x: number, y: number, n: number) {
   for (let i = 0; i < n; i++) {
     world.particles.push({
+      id: world.nextId++,
       sprite: 'dust_0',
       frames: ['dust_0', 'dust_1', 'dust_2'],
       x: x - 10 + world.rng() * 20,
@@ -1248,6 +1304,7 @@ function spark(world: World, x: number, y: number, sprite: SpriteName) {
   const a = world.rng() * Math.PI * 2;
   const s = 120 + world.rng() * 180;
   world.particles.push({
+    id: world.nextId++,
     sprite,
     x,
     y,
@@ -1265,6 +1322,7 @@ function spark(world: World, x: number, y: number, sprite: SpriteName) {
 function confetti(world: World, x: number, y: number) {
   if (world.reduceMotion && world.rng() > 1 / 3) return;
   world.particles.push({
+    id: world.nextId++,
     sprite: 'star',
     color: CONFETTI[Math.floor(world.rng() * CONFETTI.length)],
     x,

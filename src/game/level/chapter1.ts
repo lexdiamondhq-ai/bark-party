@@ -67,7 +67,8 @@ export const CHAPTER_1: LevelDef = {
     { type: 'cat', x: 5205, y: 48 },
     { type: 'vacuum', x0: 5300, x1: 5650, speed: 90 },
     { type: 'thrower', x: 5950 },
-    { type: 'runner', x: 6300, y: 60 },
+    // On the floor: it was moved off the cardboard box (6150) for pacing and kept the box's height, so it ran on air.
+    { type: 'runner', x: 6300 },
     { type: 'runner', x: 7060, speed: 140 },
     { type: 'thrower', x: 7560, y: 50, every: 1.5 },
   ],
