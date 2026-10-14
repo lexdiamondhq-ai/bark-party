@@ -95,7 +95,7 @@ const BARK_SIZE = 96;
 const SNAP = 0.004;
 const MAX_STEPS = 2;
 /** If the level's pictures have not loaded by then (a dropped dev tunnel), the count-in starts anyway. */
-const ART_WAIT_MS = 8000;
+const ART_WAIT_MS = 30000;
 
 type Props = {
   level: LevelDef;
