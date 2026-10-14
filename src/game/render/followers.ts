@@ -1,6 +1,6 @@
 // The freed pups ride in a red wagon the hero tows on a rope. Pure maths over the hero's trail, no Skia.
 
-import { BOARD_TIME } from '../constants';
+import { BOARD_TIME, STEP } from '../constants';
 import { dogSprite, type SpriteName } from '../sprites';
 import type { World } from '../sim/types';
 
@@ -89,7 +89,7 @@ export function followerDraws(world: World, view: FollowerView): FollowerDraws {
 
   // A just-freed pup arcs from its crate into the next free seat.
   world.boarding.forEach((b, n) => {
-    const u = smooth((b.t - ago * (1 / 60)) / BOARD_TIME);
+    const u = smooth((b.t - ago * STEP) / BOARD_TIME);
     const s = seat(world.followers.length + n);
     const x = b.x + (s.x - b.x) * u;
     const y = b.y + (s.y - b.y) * u + Math.sin(Math.PI * u) * 90;

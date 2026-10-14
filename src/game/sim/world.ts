@@ -1,6 +1,6 @@
 import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, POWER, STRIDE_LEN } from '../constants';
 import type { LevelDef } from '../level/types';
-import { PUP_LEG_FRAMES, SPRITES, type SpriteName } from '../sprites';
+import { SPRITES, type SpriteName } from '../sprites';
 import { NO_BOOSTS, type RunBoosts } from '../../engine/progress';
 import { seededRng } from '../../engine/rng';
 import { HITSTOP, addShake, cameraLead, cameraLift, decayShake, landImpact, type ShakeKind } from './feel';
@@ -8,8 +8,13 @@ import type { Acorn, Ball, Boss, Enemy, GameEvent, Hero, Input, Particle, Platfo
 
 /** The legs settle onto four paws over this long when the dog is stopped by a solid piece. */
 const REST_BLEND = 0.15;
-/** Stride phase of the legs-tucked frame the dog lands from, so the run picks up where the tuck left off. */
-const LAND_STRIDE = 36 / PUP_LEG_FRAMES;
+/** A landing is a touch-down: the bound starts over from the front paws on the floor. */
+const LAND_STRIDE = 0;
+/** The tail: lags the stride by this share of a bound on the ground, wags on its own in the air. */
+const TAIL_LAG = 0.15;
+const WAG_HZ = 3.1;
+const wrap = (x: number) => x - Math.round(x);
+const frac = (x: number) => x - Math.floor(x);
 
 const TRAIL_MAX = 240;
 /** Boss stands this far ahead of the dog during the chase. */
@@ -35,7 +40,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     phase: 'run',
     phaseT: 0,
     hero: makeHero(0, level.runSpeed, maxHearts, boosts.startBubble ? 1 : 0),
-    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0, mega: 0, megaAge: 0 },
+    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0, mega: 0, megaAge: 0, onGround: true, pose: 'run', landVy: 0, wag: 0 },
     camX: 0,
     camY: 0,
     camLead: 0,
@@ -48,6 +53,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     enemies,
     acorns: [],
     balls: [],
+    nextId: 1,
     pickups: level.pickups.map((p) => ({
       kind: p.kind,
       x: p.x,
@@ -63,6 +69,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     followers: [],
     boarding: [],
     trail: [],
+    trailMoved: false,
     particles: [],
     boss: level.boss
       ? {
@@ -119,10 +126,17 @@ export function snapPrev(world: World) {
   p.shakeY = world.shake.y;
   p.mega = h.powers.mega;
   p.megaAge = h.powers.megaAge;
+  p.onGround = h.onGround;
+  p.pose = h.pose;
+  p.landVy = h.landVy;
+  p.wag = h.wag;
   for (const b of world.balls) {
     b.px = b.x;
     b.py = b.y;
+    if (b.id === undefined) b.id = world.nextId++;
   }
+  for (const a of world.acorns) if (a.id === undefined) a.id = world.nextId++;
+  for (const q of world.particles) if (q.id === undefined) q.id = world.nextId++;
   for (const e of world.enemies) {
     e.px = e.x;
     e.py = e.y;
@@ -158,6 +172,8 @@ function makeHero(x: number, vx: number, hearts: number, bubble = 0): Hero {
     barkBuffer: 0,
     boost: 0,
     landImpact: 0,
+    landVy: 0,
+    wag: 0,
     invuln: 0,
     hearts,
     sinceLand: 1,
@@ -290,6 +306,7 @@ function onFloor(world: World, x: number, halfW: number): boolean {
 export function stepWorld(world: World, input: Input, dtRaw: number): void {
   const dt = Math.min(dtRaw, 1 / 30);
   snapPrev(world);
+  world.trailMoved = false;
   if (world.hitstop > 0) {
     // Frozen for a few frames after a hit. Presses made now are kept for when it ends.
     world.hitstop -= dt;
@@ -325,6 +342,7 @@ export function stepWorld(world: World, input: Input, dtRaw: number): void {
 
   // Trail for followers.
   world.trail.unshift({ x: world.hero.x, y: world.hero.y });
+  world.trailMoved = true;
   if (world.trail.length > TRAIL_MAX) world.trail.length = TRAIL_MAX;
 
   // Camera eases toward the dog; it never lags far enough to lose it. It leads a fast dog and lifts for a high one.
@@ -475,6 +493,7 @@ function stepHero(world: World, input: Input, dt: number) {
       // The harder the landing, the deeper the squash, the bigger the dust and the more the camera thumps.
       h.sinceLand = 0;
       h.landImpact = landImpact(h.vy);
+      h.landVy = h.vy;
       if (h.vy < -500) {
         sfx(world, 'land');
         dust(world, h.x, ground, 2 + Math.round(h.landImpact * 4));
@@ -520,9 +539,14 @@ function stepHero(world: World, input: Input, dt: number) {
   // Legs follow the ground actually covered, so they stop when the dog is blocked and never spin faster than a run.
   if (h.onGround) {
     const before = h.stride;
-    h.stride = (h.stride + Math.min(h.x - xBefore, MAX_STRIDE_SPEED * dt) / STRIDE_LEN) % 1;
-    // Each bound lands on the paws: a small puff keeps the run on the ground.
-    if (h.stride < before && h.vx > 200 && h.pose === 'run') dust(world, h.x - 14, h.y, 1);
+    const dStride = Math.min(h.x - xBefore, MAX_STRIDE_SPEED * dt) / STRIDE_LEN;
+    h.stride = (h.stride + dStride) % 1;
+    // Each bound touches down on the front paws: a small puff there keeps the run on the ground.
+    if (h.stride < before && h.vx > 200 && h.pose === 'run') dust(world, h.x + 12, h.y, 1);
+    // The tail follows the stride a beat late.
+    h.wag = frac(h.wag + dStride + 3 * dt * wrap(h.stride - TAIL_LAG - h.wag));
+  } else {
+    h.wag = frac(h.wag + dt * WAG_HZ);
   }
   h.restBlend = Math.min(1, Math.max(0, h.restBlend + (h.blocked ? dt : -dt) / REST_BLEND));
 }

@@ -64,6 +64,10 @@ export interface Hero {
   boost: number;
   /** How hard the last landing was, 0..1, for the squash. */
   landImpact: number;
+  /** Vertical speed just before the last landing (negative), for the landing pose. */
+  landVy: number;
+  /** Tail wag phase 0..1: locked a little behind the stride on the ground, free in the air. */
+  wag: number;
   invuln: number;
   hearts: number;
   /** Seconds since the last landing, for the squash on touchdown. */
@@ -97,6 +101,10 @@ export interface RenderPrev {
   shakeY: number;
   mega: number;
   megaAge: number;
+  onGround: boolean;
+  pose: HeroPose;
+  landVy: number;
+  wag: number;
 }
 
 export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';
@@ -105,6 +113,8 @@ export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';
 export interface Prev {
   px?: number;
   py?: number;
+  /** A stable number so the renderer can pair this thing's draw op with its previous one. */
+  id?: number;
 }
 
 export interface Enemy extends Prev {
@@ -257,6 +267,8 @@ export interface World {
   enemies: Enemy[];
   acorns: Acorn[];
   balls: Ball[];
+  /** Hands out ids to short-lived things (acorns, balls, particles) for the renderer. */
+  nextId: number;
   pickups: Pickup[];
   cages: Cage[];
   checkpoints: { x: number; reached: boolean }[];
@@ -268,6 +280,8 @@ export interface World {
   boarding: { dog: DogId; x: number; y: number; t: number }[];
   /** Recent hero positions, newest first, for the wagon to trace. */
   trail: { x: number; y: number }[];
+  /** The trail grew this step, so the wagon has a "one step ago" to blend from. */
+  trailMoved: boolean;
   particles: Particle[];
   boss: Boss | null;
   bones: number;

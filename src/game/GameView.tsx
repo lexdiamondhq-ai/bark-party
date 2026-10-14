@@ -138,7 +138,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const viewW = width / k;
 
   const [world] = useState(() => createStartWorld(level, viewW, startX, boosts));
-  const ops = useSharedValue<number[]>([]);
+  const ops = useSharedValue<Float64Array>(new Float64Array(0));
   const input = useRef<Input>({ ...NO_INPUT });
   const jumpTouch = useRef<{ id: string; y: number; slid: boolean } | null>(null);
   const runState = useRef<RunState>('ready');
@@ -322,7 +322,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         probe: pup,
       }, out);
       const t1 = __DEV__ ? performance.now() : 0;
-      ops.set(out.data);
+      ops.set(out.toArray());
       const p = probe.current;
       if (p) {
         if (!p.until) p.until = now + 1000;

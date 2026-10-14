@@ -10,7 +10,7 @@ import { SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD, heroScale } from '../sim/world';
 import type { World } from '../sim/types';
 import { followerDraws } from './followers';
-import { TUCK_DOWN, TUCK_UP, gallopBody, puppetPose, type PoseInput } from './pupPose';
+import { heroPose, type HeroPoseOut, type PoseInput } from './pupPose';
 
 /**
  * One draw op is STRIDE numbers:
@@ -50,31 +50,81 @@ export interface PupProbe {
   tuckT: number;
 }
 
-/** The numbers of one op that change between steps. */
-const MOVING = [5, 6, 7, 8, 9, 10] as const;
+/** The numbers of one op that change between steps: x, y, w, h, rot (alpha is handled on its own). */
+const MOVING = [5, 6, 7, 8, 9] as const;
+
+/** Stable keys for draw ops, so an op can be paired with its previous self even when its frame changed. */
+export const key = (category: number, index: number) => category * 1_000_000 + index;
+export const K = {
+  bg: 1,
+  scrim: 2,
+  decor: 3,
+  pit: 4,
+  floorFill: 5,
+  floorTile: 6,
+  lip: 7,
+  platform: 8,
+  checkpoint: 9,
+  arch: 10,
+  cage: 11,
+  pickup: 12,
+  enemy: 13,
+  acorn: 14,
+  ball: 15,
+  rope: 16,
+  follower: 17,
+  hero: 18,
+  boss: 19,
+  cakeGone: 20,
+  speedLine: 21,
+  particle: 22,
+} as const;
 
 export class OpList {
   data: number[] = [];
-  /** Pushes one op with its previous-step values equal to the current ones (nothing to blend). */
+  /** keys[n] is the stable id of op n. */
+  keys: number[] = [];
+  /** The key the next push gets; set it before each draw call. */
+  cur = 0;
   push(image: number, sx: number, sy: number, sw: number, sh: number, cx: number, cy: number, dw: number, dh: number, rot: number, alpha: number, color: number) {
     this.data.push(image, sx, sy, sw, sh, cx, cy, dw, dh, rot, alpha, color, cx, cy, dw, dh, rot, alpha);
+    this.keys.push(this.cur);
   }
   get count() {
     return this.data.length / STRIDE;
   }
+  reset() {
+    this.data.length = 0;
+    this.keys.length = 0;
+    this.cur = 0;
+  }
+  /** The numbers as one typed array, for the handoff to the UI thread. */
+  toArray(): Float64Array {
+    return Float64Array.from(this.data);
+  }
   /**
-   * Copies the moving numbers of `prev` into this list's previous-step slots, op by op. Where the two
-   * lists stop lining up (something appeared or vanished this step), the rest keeps "no blend".
+   * Copies the moving numbers of `prev` into this list's previous-step slots, pairing ops by key.
+   * Both lists are in the same draw order, so this is a forward merge. An op with no match is new
+   * this step and draws where it is. Alpha blends only when the sprite frame is the same, so a slot
+   * whose frame advanced never flashes the new frame at the old alpha.
    */
   takePrevFrom(prev: OpList) {
     const a = this.data;
     const b = prev.data;
-    const n = Math.min(a.length, b.length);
-    for (let i = 0; i + STRIDE <= n; i += STRIDE) {
-      if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) return;
+    const ka = this.keys;
+    const kb = prev.keys;
+    let j = 0;
+    for (let i = 0, n = 0; i < a.length; i += STRIDE, n++) {
+      let m = j;
+      while (m < kb.length && kb[m] !== ka[n]) m++;
+      if (m === kb.length) continue;
+      j = m + 1;
+      const q = m * STRIDE;
+      if (a[i] !== b[q]) continue;
       // A sprite that flipped this step snaps instead of shrinking through zero.
-      if (Math.sign(a[i + 7]) !== Math.sign(b[i + 7])) continue;
-      for (let f = 0; f < MOVING.length; f++) a[i + 12 + f] = b[i + MOVING[f]];
+      if (Math.sign(a[i + 7]) !== Math.sign(b[q + 7])) continue;
+      for (let f = 0; f < MOVING.length; f++) a[i + 12 + f] = b[q + MOVING[f]];
+      if (a[i + 1] === b[q + 1] && a[i + 2] === b[q + 2] && a[i + 3] === b[q + 3]) a[i + 17] = b[q + 10];
     }
   }
 }
@@ -102,7 +152,7 @@ interface View {
   t: number;
   camX: number;
   camY: number;
-  hero: PoseInput & { x: number; y: number; stride: number; invuln: number; big: number; bubble: number; turbo: number };
+  hero: PoseInput & { x: number; y: number; stride: number; invuln: number; big: number; bubble: number; turbo: number; pose: World['hero']['pose'] };
   /** Position of a moving thing at this moment. */
   pos: (x: number, px: number | undefined) => number;
   /** A timer that grew by one step: its value at this moment. */
@@ -116,7 +166,7 @@ function viewNow(world: World): View {
     t: world.t,
     camX: world.camX,
     camY: world.camY,
-    hero: { ...h, big: heroScale(h), bubble: h.powers.bubble, turbo: h.powers.turbo },
+    hero: { ...h, big: heroScale(h), bubble: h.powers.bubble, turbo: h.powers.turbo, pose: h.pose },
     pos: (x) => x,
     timer: (v) => v,
   };
@@ -133,7 +183,10 @@ function viewBefore(world: World): View {
       x: p.x,
       y: p.y,
       stride: p.stride,
-      onGround: world.hero.onGround,
+      onGround: p.onGround,
+      pose: p.pose,
+      landVy: p.landVy,
+      wag: p.wag,
       airTime: p.airTime,
       sinceLand: p.sinceLand,
       vy: p.vy,
@@ -150,12 +203,16 @@ function viewBefore(world: World): View {
   };
 }
 
+const scratch = new OpList();
+
 export function buildFrame(world: World, setup: FrameSetup, out = new OpList()): OpList {
-  out.data = [];
-  const before = new OpList();
-  drawScene(world, setup, viewBefore(world), before);
+  out.reset();
   drawScene(world, setup, viewNow(world), out, setup.probe);
-  out.takePrevFrom(before);
+  // A frozen world (hit-stop, respawn) has no "one step ago": every op stays put.
+  if (world.prev.t === world.t) return out;
+  scratch.reset();
+  drawScene(world, setup, viewBefore(world), scratch);
+  out.takePrevFrom(scratch);
   return out;
 }
 
@@ -205,80 +262,96 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
       const x = n * dw - scroll;
       // Every other copy is mirrored so the edges always meet cleanly.
       const mirror = n % 2 !== 0;
+      out.cur = key(K.bg, n + 1000);
       out.push(bg.image, 0, 0, bg.w, bg.h, x + dw / 2, dh / 2 - screenH * 0.02 + camY * k * 0.3, mirror ? -dw : dw, dh, 0, 1, 0);
     }
     // Push the room back so the furniture you can jump on reads in front of it.
+    out.cur = key(K.scrim, 0);
     out.push(RECT, 0, 0, 0, 0, screenW / 2, screenH / 2, screenW + 40, screenH + 40, 0, 0.22, 0x140a1f);
   }
 
   // Decorations stand behind the action.
-  for (const d of world.level.decor) {
+  world.level.decor.forEach((d, i) => {
+    out.cur = key(K.decor, i);
     if (visible(d.x, 260)) sprite(d.sprite, d.x + SPRITES[d.sprite].w / 2, d.y ?? 0);
-  }
+  });
 
   // Floor: a dark pit everywhere, the level's own tiles over each segment.
+  out.cur = key(K.pit, 0);
   out.push(RECT, 0, 0, 0, 0, screenW / 2, (sy(0) + screenH) / 2 + 2 * k, screenW + 40, screenH - sy(0) + 20 * k, 0, 1, PIT);
   const floorSprite = world.level.floor;
   const floorSize = SPRITES[floorSprite];
   const tile = floorSize.w;
-  for (const [a, b] of world.floor) {
+  world.floor.forEach(([a, b], seg) => {
     const x0 = Math.max(a, viewL);
     const x1 = Math.min(b, viewR);
-    if (x1 <= x0) continue;
+    if (x1 <= x0) return;
+    out.cur = key(K.floorFill, seg);
     rect((x0 + x1) / 2, -floorSize.h / 2 - 30, x1 - x0, 60, FLOOR_FILL);
     const first = Math.floor((x0 - a) / tile) * tile + a;
     for (let x = first; x < x1; x += tile) {
       const w = Math.min(tile, b - x);
       const f = atlas.frames[floorSprite];
       if (!f) continue;
+      out.cur = key(K.floorTile, seg * 4096 + Math.round((x - a) / tile));
       out.push(f[0], f[1], f[2], f[3] * (w / tile), f[4], sx(x + w / 2), sy(-floorSize.h / 2), w * k, floorSize.h * k, 0, 1, 0);
     }
     // Ink edge on pit lips.
+    out.cur = key(K.lip, seg * 2);
     rect(a + 2, -20, 4, 40, COCOA, 0.8);
+    out.cur = key(K.lip, seg * 2 + 1);
     rect(b - 2, -20, 4, 40, COCOA, 0.8);
-  }
+  });
 
   // Furniture.
-  for (const p of world.platforms) {
+  world.platforms.forEach((p, i) => {
+    out.cur = key(K.platform, i);
     if (visible(p.x + p.w / 2, p.w)) sprite(p.sprite, p.x + p.w / 2, p.y);
-  }
+  });
 
   // Balloon posts.
-  for (const c of world.checkpoints) {
+  world.checkpoints.forEach((c, i) => {
+    out.cur = key(K.checkpoint, i);
     if (visible(c.x)) sprite(c.reached ? 'balloon_post_up' : 'balloon_post_down', c.x, 0, { rot: c.reached ? Math.sin(t * 3 + c.x) * 0.05 : 0 });
-  }
+  });
 
   // Finish arch for levels without a boss.
+  out.cur = key(K.arch, 0);
   if (!world.level.boss && visible(world.level.finishX, 220)) sprite('party_arch', world.level.finishX, 0);
 
   // Crates with dogs inside.
-  for (const c of world.cages) {
-    if (!visible(c.x + 42, 100)) continue;
+  world.cages.forEach((c, i) => {
+    if (!visible(c.x + 42, 100)) return;
     if (!c.open) {
+      out.cur = key(K.cage, i * 2);
       sprite(dogSprite(c.dog), c.x + 42, c.y + 6, { rot: Math.sin(t * 9 + c.x) * 0.04, scale: 0.95 });
+      out.cur = key(K.cage, i * 2 + 1);
       sprite('cage_closed', c.x + 42, c.y);
     } else {
+      out.cur = key(K.cage, i * 2 + 1);
       sprite('cage_open', c.x + 42, c.y);
     }
-  }
+  });
 
   // Bones and presents bob in place; taken ones float up and fade.
-  for (const p of world.pickups) {
-    if (!visible(p.x)) continue;
+  world.pickups.forEach((p, i) => {
+    if (!visible(p.x)) return;
+    out.cur = key(K.pickup, i);
     if (p.taken) {
       const takenT = v.timer(p.takenT);
-      if (takenT > 0.4 || takenT < 0) continue;
+      if (takenT > 0.4 || takenT < 0) return;
       const u = takenT / 0.4;
       sprite(p.sprite, p.x, p.y + u * 50, { alpha: 1 - u, scale: 1 + u * 0.6 });
-      continue;
+      return;
     }
     const bob = Math.sin(t * 4 + p.x * 0.05) * 3;
     sprite(p.sprite, p.x, p.y + bob, { rot: p.kind === 'present' ? 0 : Math.sin(t * 3 + p.x) * 0.15 });
-  }
+  });
 
   // Squirrels, the cat, the vacuum and toy blocks.
   for (const e of world.enemies) {
     if (!visible(e.x, 80)) continue;
+    out.cur = key(K.enemy, e.id);
     const ex = v.pos(e.x, e.px);
     const ey = v.pos(e.y, e.py);
     const et = Math.max(0, v.timer(e.t));
@@ -308,6 +381,7 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   // Acorns.
   for (const a of world.acorns) {
     if (!visible(a.x)) continue;
+    out.cur = key(K.acorn, a.id ?? 0);
     const spin = v.ago ? a.spin - STEP * (a.rolling ? -14 : 10) : a.spin;
     sprite(a.golden ? 'acorn_golden' : 'acorn', v.pos(a.x, a.px), v.pos(a.y, a.py) - 9, { rot: spin, scale: a.golden ? 1.4 : 1 });
   }
@@ -315,20 +389,25 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   // Tennis balls from Ball Mouth.
   for (const ball of world.balls) {
     if (!ball.alive || !visible(ball.x)) continue;
+    out.cur = key(K.ball, ball.id ?? 0);
     const bt = Math.max(0, v.timer(ball.t));
     sprite('tennis_ball', v.pos(ball.x, ball.px), v.pos(ball.y, ball.py) - 9, { rot: bt * 18, scale: 1.1 });
   }
 
   // The wagon with the rescued friends rides behind the dog.
-  const friends = followerDraws(world, { t, ago: v.ago, heroX: v.hero.x, heroY: v.hero.y });
-  for (const r of friends.ropes) {
+  const friends = followerDraws(world, { t, ago: world.trailMoved ? v.ago : 0, heroX: v.hero.x, heroY: v.hero.y });
+  friends.ropes.forEach((r, i) => {
     const dx = r.x1 - r.x0;
     const dy = r.y1 - r.y0;
+    out.cur = key(K.rope, i);
     rect((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, Math.hypot(dx, dy), 2.2, COCOA, 0.9, -Math.atan2(dy, dx));
-  }
-  for (const s of friends.sprites) sprite(s.sprite, s.x, s.y, s);
+  });
+  friends.sprites.forEach((f, i) => {
+    out.cur = key(K.follower, i);
+    sprite(f.sprite, f.x, f.y, f);
+  });
 
-  drawHero(world, v, sprite, part, probe);
+  drawHero(world, v, out, sprite, part, probe);
 
   // The boss.
   const b = world.boss;
@@ -340,11 +419,14 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     else if (b.phase === 'hurt' || b.hurtT > 0) name = 'boss_hurt';
     else if (b.throwing > 0) name = b.throwing > 0.18 ? 'boss_throw_0' : 'boss_throw_1';
     const blink = b.hurtT > 0 && Math.floor(b.hurtT * 20) % 2 === 0 ? 0.5 : 1;
+    out.cur = key(K.boss, 0);
     sprite(name, bx, by, { flip: true, alpha: blink });
     // The stolen cake rides on the boss until it is beaten, then drops for the party.
+    out.cur = key(K.boss, 1);
     if (b.phase === 'defeated') sprite('cake', bx - 90, 0, { scale: Math.min(1, 0.4 + v.timer(b.t)) });
     else sprite('cake', bx + 30, by + 104, { scale: 0.6, rot: Math.sin(t * 5) * 0.1 });
   }
+  out.cur = key(K.cakeGone, 0);
   if (b && b.phase === 'gone') sprite('cake', v.hero.x + BOSS_LEAD - 130, 0);
 
   // Zoomies: speed lines streak behind the dog.
@@ -355,7 +437,9 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
       const x = v.hero.x - 50 - i * 19 - ((t * 700 + i * 37) % 44);
       const y = v.hero.y + 12 + i * 11 + Math.sin(t * 9 + i) * 2;
       // Ink streaks with a pale core, so they read on the wood floor and the rugs alike.
+      out.cur = key(K.speedLine, i * 2);
       rect(x, y, 30 + i * 5, 5, COCOA, 0.5 * strength);
+      out.cur = key(K.speedLine, i * 2 + 1);
       rect(x, y, 26 + i * 5, 2, 0xfff4e2, 0.9 * strength);
     }
   }
@@ -363,6 +447,7 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
   // Particles: dust, sparkles, hearts, confetti and the bark burst.
   for (const p of world.particles) {
     if (!visible(p.x)) continue;
+    out.cur = key(K.particle, p.id ?? 0);
     const life = v.ago ? Math.min(p.maxLife, p.life + STEP) : p.life;
     const fade = Math.min(1, life / (p.maxLife * 0.35));
     const scale = p.scale1 === undefined ? p.scale : p.scale + (p.scale1 - p.scale) * (1 - life / p.maxLife);
@@ -398,76 +483,61 @@ function drawPuppet(part: PartFn, x: number, y: number, o: { rot: number; alpha:
   const cos = Math.cos(o.rot);
   const sin = Math.sin(o.rot);
   // Place a piece by its box in canvas px: squash about the paws, then turn about the pup's middle.
+  // Every layer is pushed, even at alpha 0, so the canvas can pair each slot with its previous self.
   for (const l of layers) {
     const alpha = o.alpha * l.alpha;
-    if (alpha <= 0.01) continue;
     const box = l.box;
     const bx = ((box[0] + box[2]) / 2 - PUP_CANVAS.w / 2) * PUP_S * o.sxScale * o.big;
     const by = (PUP_CANVAS.h - (box[1] + box[3]) / 2) * PUP_S * o.syScale * o.big - H / 2;
     const w = (box[2] - box[0]) * PUP_S * o.sxScale * o.big;
     const h = (box[3] - box[1]) * PUP_S * o.syScale * o.big;
     // Screen rotation is clockwise for positive angles; in world space (y up) that is the inverse turn.
-    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos + (l.lift ?? 0) * o.big, w, h, o.rot, alpha);
+    part(l.name, x + bx * cos + by * sin, y + H / 2 - bx * sin + by * cos, w, h, o.rot, alpha);
   }
 }
 
 const leg = (i: number): SpriteName => `pup_leg_${i}` as SpriteName;
 const tail = (i: number): SpriteName => `pup_tail_${i}` as SpriteName;
 
-/** The puppet's layers for a hero state: tail wag, gallop, tuck in the air and rest when blocked, each blended, never cut. */
-export function puppetLayers(h: PoseInput, stride: number, t: number, probe?: PupProbe): PupLayer[] {
-  const p = puppetPose(h, stride, t);
+/** The puppet's six layers for a pose: body, two tail frames, two stride frames, the rest frame. */
+export function puppetLayers(p: HeroPoseOut, probe?: PupProbe): PupLayer[] {
   if (probe) {
     probe.legA = p.legA;
     probe.legB = p.legB;
     probe.legT = p.legT;
-    probe.tuckT = p.tuckT;
+    probe.tuckT = 0;
   }
-  // Rest wins over everything (the dog is standing), then the tuck over the stride.
   const live = 1 - p.restT;
-  const strideA = live * (1 - p.tuckT);
-  const tuckA = live * p.tuckT;
   return [
     { name: 'pup_base', box: BASE_BOX, alpha: 1 },
     { name: tail(p.tailA), box: TAIL_BOX, alpha: 1 },
     { name: tail(p.tailB), box: TAIL_BOX, alpha: p.tailT },
     // Adjacent stride frames nearly coincide, so the next one stacks over the current one instead of cross-fading.
-    { name: leg(p.legA), box: LEGS_BOX, alpha: strideA },
-    { name: leg(p.legB), box: LEGS_BOX, alpha: strideA * p.legT },
-    { name: leg(TUCK_UP), box: LEGS_BOX, alpha: tuckA * (1 - p.fallT) },
-    { name: leg(TUCK_DOWN), box: LEGS_BOX, alpha: tuckA * p.fallT },
+    { name: leg(p.legA), box: LEGS_BOX, alpha: live },
+    { name: leg(p.legB), box: LEGS_BOX, alpha: live * p.legT },
     { name: 'pup_leg_rest', box: LEGS_BOX, alpha: p.restT },
   ];
 }
 
-function drawHero(world: World, v: View, sprite: SpriteFn, part: PartFn, probe?: PupProbe) {
+function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: PartFn, probe?: PupProbe) {
   const h = v.hero;
-  const live = world.hero;
   if (world.phase === 'respawn' && world.phaseT < 0.9) return;
   const t = v.t;
   const flicker = h.invuln > 0 && Math.floor(h.invuln * 14) % 2 === 0 ? 0.35 : 1;
+  const big = h.big;
 
-  // The gallop: body bounds, pitches and stretches with the stride while the paws are on the ground.
-  const running = live.pose === 'run' && h.onGround;
-  const body = running ? gallopBody(h.stride) : null;
+  if (h.bubble > 0) {
+    // The Bubble floats around the pup, breathing a little.
+    const puff = 1 + Math.sin(t * 5) * 0.03;
+    out.cur = key(K.hero, 100);
+    sprite('bubble', h.x + 4, h.y - 6 * big, { scale: 1.35 * big * puff, alpha: 0.9 });
+  }
 
-  // Squash on landing (deeper after a long fall), stretch on take-off. Volume stays put: width = 1 / sqrt(height).
-  let syScale = body ? body.sy : 1;
-  if (h.onGround && h.sinceLand < 0.14) syScale = Math.min(syScale, 1 - (0.14 + 0.16 * h.landImpact) * (1 - h.sinceLand / 0.14));
-  else if (!h.onGround && h.vy > 200) syScale = 1.08;
-  if (h.boost > 0) syScale -= 0.03;
-  const sxScale = 1 / Math.sqrt(syScale);
-
-  let name: SpriteName = 'pup_walk';
-  let rot = body ? body.rot : 0;
-  let lift = body ? body.lift : 0;
-  switch (live.pose) {
-    case 'jump':
-      rot = -0.18;
-      break;
-    case 'fall':
-      rot = 0.14;
-      break;
+  // Poses with their own sticker: slide, bark, hurt wobble, cheer.
+  let name: SpriteName | null = null;
+  let rot = 0;
+  let lift = 0;
+  switch (h.pose) {
     case 'slide':
       name = 'pup_down';
       lift = Math.sin(t * 40) * 0.6;
@@ -487,22 +557,27 @@ function drawHero(world: World, v: View, sprite: SpriteFn, part: PartFn, probe?:
     default:
       break;
   }
-  const big = h.big;
-  if (h.bubble > 0) {
-    // The Bubble floats around the pup, breathing a little.
-    const puff = 1 + Math.sin(t * 5) * 0.03;
-    sprite('bubble', h.x + 4, h.y - 6 * big, { scale: 1.35 * big * puff, alpha: 0.9 });
-  }
-  if (name !== 'pup_walk') {
-    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale, syScale, scale: big });
+  if (name) {
+    const sy = h.boost > 0 ? 0.97 : 1;
+    out.cur = key(K.hero, 0);
+    sprite(name, h.x, h.y + lift, { rot, alpha: flicker, sxScale: 1 / Math.sqrt(sy), syScale: sy, scale: big });
     return;
   }
-  // Running and airborne: the real Dog Better puppet, legs sweeping with the bound, tail always wagging.
-  const layers = puppetLayers(h, h.stride, t, probe);
-  if (body) {
-    // The legs hang a touch below the body at the top of the bound and gather under it on contact.
-    const trail = -Math.max(0, -Math.cos(2 * Math.PI * body.phase)) * 0.9;
-    for (const l of layers) if (l.box === LEGS_BOX) l.lift = trail;
-  }
-  drawPuppet(part, h.x, h.y + lift * big, { rot, alpha: flicker, sxScale, syScale, big }, layers);
+
+  // Running and airborne: the puppet, driven by one continuous pose.
+  const pose = heroPose(h, h.stride, STEP);
+  const sy = pose.sy * (h.boost > 0 ? 0.97 : 1);
+  const layers = puppetLayers(pose, probe);
+  const base = key(K.hero, 1);
+  let slot = 0;
+  drawPuppet(
+    (nm, cx, cy, w, hh, r, a) => {
+      out.cur = base + slot++;
+      part(nm, cx, cy, w, hh, r, a);
+    },
+    h.x,
+    h.y + pose.lift * big,
+    { rot: h.pose === 'hurt' ? rot : pose.rot, alpha: flicker, sxScale: 1 / Math.sqrt(sy), syScale: sy, big },
+    layers,
+  );
 }

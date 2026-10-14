@@ -1,9 +1,9 @@
-import { PUP_LEG_FRAMES, PUP_TAIL_FRAMES } from '../../sprites';
+import { PUP_LEG_FRAMES } from '../../sprites';
 import { CHAPTER_1 } from '../../level/chapter1';
 import { MAX_STRIDE_SPEED, STEP, STRIDE_LEN } from '../../constants';
 import { createWorld, stepWorld } from '../../sim/world';
 import { NO_INPUT, type Hero } from '../../sim/types';
-import { GALLOP, TUCK_BLEND, WAG_HZ, fallShare, gallopBody, gallopLegIndex, legFrames, tailFrames, tuckShare } from '../pupPose';
+import { AIR_DOWN, AIR_UP, GALLOP, airLeg, gallopBody, gallopLegIndex, heroPose, landSquash, legFrames } from '../pupPose';
 import { STRIDE, buildFrame, puppetLayers, type AtlasData } from '../buildFrame';
 
 const hero = (over: Partial<Hero> = {}): Hero => ({
@@ -28,6 +28,8 @@ const hero = (over: Partial<Hero> = {}): Hero => ({
   stride: 0,
   blocked: false,
   restBlend: 0,
+  landVy: 0,
+  wag: 0,
   pose: 'run',
   powers: { mega: 0, turbo: 0, ball: 0, megaAge: 0, bubble: 0 },
   ...over,
@@ -55,72 +57,79 @@ describe('leg frames', () => {
     expect(before.b).toBe(after.a);
   });
 
-  it('wags the tail through every frame and back to the first', () => {
-    const seen = new Set<number>();
-    for (let i = 0; i < 400; i++) seen.add(tailFrames(i / 400).a);
-    expect(seen.size).toBe(PUP_TAIL_FRAMES);
-    expect(tailFrames(1 / WAG_HZ - 1e-6).b).toBe(0);
-  });
 });
 
-describe('tuck and fall', () => {
-  it('eases in over the first moments in the air and out after landing', () => {
-    expect(tuckShare(hero({ onGround: false, airTime: 0 }))).toBe(0);
-    expect(tuckShare(hero({ onGround: false, airTime: TUCK_BLEND / 2 }))).toBeCloseTo(0.5);
-    expect(tuckShare(hero({ onGround: false, airTime: 1 }))).toBe(1);
-    expect(tuckShare(hero({ onGround: true, sinceLand: 0 }))).toBe(1);
-    expect(tuckShare(hero({ onGround: true, sinceLand: TUCK_BLEND }))).toBe(0);
+describe('air and landing', () => {
+  it('flings the legs out on the way up and reaches down on the way in', () => {
+    expect(airLeg(600)).toBeCloseTo(AIR_UP);
+    expect(airLeg(-600)).toBeCloseTo(AIR_DOWN);
+    expect(airLeg(0)).toBeGreaterThan(AIR_DOWN);
+    expect(airLeg(0)).toBeLessThan(AIR_UP);
   });
 
-  it('turns the tuck over across the top of the jump, not at one instant', () => {
-    expect(fallShare(500)).toBe(0);
-    expect(fallShare(0)).toBeCloseTo(0.5);
-    expect(fallShare(-500)).toBe(1);
-    expect(fallShare(30)).toBeGreaterThan(0);
-    expect(fallShare(30)).toBeLessThan(0.5);
+  it('squashes harder after a long fall, with one overshoot', () => {
+    const soft = landSquash(STEP, -200, 0, STEP);
+    const hard = landSquash(STEP, -800, 0.5, STEP);
+    expect(hard).toBeGreaterThan(soft);
+    expect(hard).toBeGreaterThan(0.15);
+    // Past the first bounce the squash goes slightly negative (a stretch), then dies out.
+    const later = landSquash(STEP + 0.12, -800, 0.5, STEP);
+    expect(later).toBeLessThan(0);
+    expect(Math.abs(landSquash(0.6, -800, 0.5, STEP))).toBeLessThan(0.001);
+  });
+
+  it('scrubs the legs from the stride to the air pose after take-off, never jumping', () => {
+    let last = heroPose(hero({ onGround: true, sinceLand: 1 }), 0.3, STEP).legIndex;
+    for (let i = 1; i <= 8; i++) {
+      const p = heroPose(hero({ onGround: false, airTime: i * STEP, vy: 600 }), 0.3, STEP);
+      expect(Math.abs(p.legIndex - last)).toBeLessThan(6);
+      last = p.legIndex;
+    }
+    expect(last).toBeCloseTo(AIR_UP, 0);
   });
 });
 
 describe('gallop', () => {
-  it('sweeps the legs between gathered and extended, never off the strip', () => {
+  it('sweeps the legs from touch to push while planted, then reaches fully in the air', () => {
+    expect(gallopLegIndex(0)).toBeCloseTo(GALLOP.legTouch);
+    expect(gallopLegIndex(GALLOP.contact)).toBeCloseTo(GALLOP.legPush);
+    expect(gallopLegIndex(GALLOP.reachAt)).toBeCloseTo(GALLOP.legReach);
     let lo = 99;
     let hi = -1;
-    for (let i = 0; i < 200; i++) {
-      const f = gallopLegIndex(i / 200);
+    for (let i = 0; i < 400; i++) {
+      const f = gallopLegIndex(i / 400);
       lo = Math.min(lo, f);
       hi = Math.max(hi, f);
     }
-    expect(lo).toBeCloseTo(GALLOP.legCentre - GALLOP.legSweep, 1);
-    expect(hi).toBeCloseTo(GALLOP.legCentre + GALLOP.legSweep, 1);
-    expect(lo).toBeGreaterThanOrEqual(0);
-    expect(hi).toBeLessThan(48);
+    expect(lo).toBeGreaterThanOrEqual(GALLOP.legPush - 0.5);
+    expect(hi).toBeLessThanOrEqual(GALLOP.legReach + 0.5);
   });
 
-  it('bounds: on the ground at contact, highest mid-flight, squashed on contact and stretched in the air', () => {
-    const contact = gallopBody(0);
-    const flight = gallopBody(0.5);
-    expect(contact.lift).toBeLessThan(0.5);
-    expect(flight.lift).toBeGreaterThan(GALLOP.lift * 0.7);
-    expect(contact.sy).toBeLessThan(1);
-    expect(flight.sy).toBeGreaterThan(1);
-    // Nose up on the push, nose down coming in to land.
-    expect(gallopBody(0.3).rot).toBeLessThan(0);
-    expect(gallopBody(0.8).rot).toBeGreaterThan(0);
+  it('bounds: on the ground through contact, highest mid-flight, squashed after touch, stretched after push-off', () => {
+    expect(gallopBody(0).lift).toBe(0);
+    expect(gallopBody(GALLOP.contact / 2).lift).toBe(0);
+    const peak = GALLOP.contact + (1 - GALLOP.contact) / 2;
+    expect(gallopBody(peak).lift).toBeCloseTo(GALLOP.lift);
+    expect(gallopBody(0.1).sy).toBeLessThan(1);
+    expect(gallopBody(GALLOP.contact + 0.08).sy).toBeGreaterThan(1);
+    // Nose down at touch, up at push.
+    expect(gallopBody(0.02).rot).toBeGreaterThan(0);
+    expect(gallopBody(GALLOP.contact + 0.02).rot).toBeLessThan(0);
   });
 });
 
 describe('puppet layers', () => {
-  it('shows two stride frames on the ground and only the tuck in the air', () => {
-    const run = puppetLayers(hero(), 0.33, 1).filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
-    const i = Math.floor(gallopLegIndex(0.33));
-    expect(run.map((l) => l.name)).toEqual([`pup_leg_${i}`, `pup_leg_${i + 1}`]);
-    const air = puppetLayers(hero({ onGround: false, airTime: 1, vy: 400 }), 0.3, 1).filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
-    expect(air.map((l) => l.name)).toEqual(['pup_leg_12']);
+  it('always pushes six layers, two stride frames showing on the ground', () => {
+    const p = heroPose(hero(), 0.33, STEP);
+    const layers = puppetLayers(p);
+    expect(layers.length).toBe(6);
+    const legs = layers.filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
+    expect(legs.map((l) => l.name)).toEqual([`pup_leg_${p.legA}`, `pup_leg_${p.legB}`]);
   });
 
   it('rests on all four paws when blocked', () => {
-    const legs = puppetLayers(hero({ restBlend: 1 }), 0.3, 1).filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg'));
-    expect(legs.map((l) => l.name)).toEqual(['pup_leg_rest']);
+    const layers = puppetLayers(heroPose(hero({ restBlend: 1 }), 0.3, STEP));
+    expect(layers.filter((l) => l.alpha > 0.01 && l.name.startsWith('pup_leg')).map((l) => l.name)).toEqual(['pup_leg_rest']);
   });
 });
 
