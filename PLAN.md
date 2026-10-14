@@ -199,3 +199,15 @@ Commits after each phase with one-sentence subjects (for example "Make the pup's
 4. HUD: a chip per live power with a draining ring; the present pop names the power. Proof: web screenshots.
 5. Progress: four more treats (Mega lasts longer, Turbo lasts longer, Twin balls, Start with a Bubble) in `engine/progress.ts`, read by the sim through `RunBoosts`. Proof: progress tests and the Treats tab on the web build.
 6. Levels: two more presents per chapter in risky spots. Proof: the autopilot still clears both chapters.
+
+## Readability pass (2026-10-14, Alex: "the game is going too fast, it's tough to see what's coming")
+
+Measured first with `src/game/sim/__tests__/pacing.test.ts` (`PACING=1 npm test -- pacing` prints the table) at the iPhone's view width.
+Before: runners on screen 0.85-1.0 s before bark range and already 110-155 units into their run; acorns 0.37 s before bark range; throwers throw 0.7 s after appearing; three spots stack a squirrel, a thrower and an acorn inside 0.2 s; five coach tips fire inside 1.2 s of a hazard.
+
+1. Run speed 300 -> 260 (Chapter 2 320 -> 280), with gravity and jump speeds scaled so every jump still reaches the same furniture and pits. Proof: both autopilots still win; the reach guide in each level file is updated.
+2. Camera leads farther with speed (`feel.ts` `cameraLead`, capped so the wagon stays mostly in frame). Proof: `feel.test.ts`.
+3. Runners sleep until they enter the view, then hop on the spot with a sparkle before charging (`world.ts` `stepEnemies`). Proof: the pacing table shows pre-run 0 and at least 1.1 s on screen.
+4. Throwers wind up for half a second before the acorn leaves (`Enemy.windup`, a lean-back pose in `buildFrame.ts`), lob a higher, slower arc, never throw while another acorn is still near the pup, and a landing mark on the floor shows where the acorn comes down (`Acorn.landX`/`landT`, new `land_mark` prop). Proof: pacing table, a web clip.
+5. Levels: stacked spots pulled apart and every coach tip moved to at least 1.5 s before the hazard it talks about. Proof: the pacing test asserts no tip is "busy" and no two answers fall inside 0.6 s.
+6. The pacing test asserts the budget for good: runners >= 1.1 s, acorns >= 0.7 s, throwers wind up >= 0.45 s, still hazards >= 1.4 s.

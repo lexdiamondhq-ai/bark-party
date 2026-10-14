@@ -13,10 +13,12 @@ export const FLOOR_SCREEN_Y = 310;
 export const HERO_SCREEN_X = 0.28;
 
 export const PHYS = {
-  gravity: 2300,
+  // Gravity and jump speeds are scaled together with the run speed (260): the arc covers the same
+  // ground and height as it did at 300, it just takes a touch longer, so every pit and shelf still reads.
+  gravity: 2000,
   /** Holding the jump past this point keeps full height; letting go early cuts the rise. */
-  jumpVelocity: 780,
-  doubleJumpVelocity: 700,
+  jumpVelocity: 735,
+  doubleJumpVelocity: 660,
   jumpCut: 0.45,
   maxFall: 1300,
   coyoteTime: 0.1,
@@ -26,7 +28,7 @@ export const PHYS = {
   barkCooldown: 0.7,
   barkRange: 170,
   hurtInvuln: 1.3,
-  stompBounce: 620,
+  stompBounce: 585,
   /** Height above the platform top within which a falling hero still lands on it. */
   landTolerance: 22,
   /** Zoomies: finishing a slide gives this much extra speed for this long. */
@@ -35,7 +37,22 @@ export const PHYS = {
   /** A bark pressed this long before the cooldown ends still fires. */
   barkBuffer: 0.12,
   /** Running off an edge gives a tiny hop so the drop feels bouncy, not like slipping. */
-  ledgeHop: 110,
+  ledgeHop: 105,
+} as const;
+
+/** How enemies announce themselves, so nothing arrives without warning. */
+export const WARN = {
+  /** A runner hops on the spot this long after it enters the view before it charges. */
+  runnerHop: 0.35,
+  runnerHopVy: 230,
+  /** A thrower leans back this long before the acorn leaves. */
+  windup: 0.5,
+  /** Seconds the acorn is in the air, and how close (ahead of the pup) a live acorn blocks the next throw. */
+  acornFlight: 1.1,
+  acornSpacing: 320,
+  /** Throwers start their wind-up when the pup is this close (just inside the view), so the first acorn
+   *  leaves while the pup is still far off and the arc has room to read. */
+  throwRange: 560,
 } as const;
 
 /** The hero's collision box, centred on x, standing on y. */

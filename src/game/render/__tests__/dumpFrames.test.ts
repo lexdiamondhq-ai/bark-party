@@ -94,7 +94,43 @@ const FEEL = !!process.env.DUMP_FEEL;
   writeFileSync(OUT!, JSON.stringify({ k, frames }));
 });
 
-(OUT && !CLIP && !FEEL && !POWERCLIP ? it : it.skip)('dumps frames', () => {
+/** Set DUMP_WARN=1 to dump a thrower winding up and lobbing with its landing mark, then a runner hopping in. */
+const WARN_CLIP = !!process.env.DUMP_WARN;
+
+(OUT && WARN_CLIP ? it : it.skip)('dumps enemy warnings', () => {
+  const level = {
+    ...CHAPTER_1,
+    floorSegments: [[-600, 20000]] as [number, number][],
+    platforms: [{ sprite: 'bookshelf' as const, x: 900 }],
+    enemies: [
+      { type: 'thrower' as const, x: 950, y: 168, every: 1.8 },
+      { type: 'runner' as const, x: 1900 },
+    ],
+    pickups: [],
+    cages: [],
+    checkpoints: [],
+    callouts: [],
+    decor: [],
+    boss: undefined,
+  };
+  const w = createWorld(level, 780);
+  const k = 1.2;
+  const setup = { atlas: atlas as unknown as AtlasData, background: null, k, screenW: 780 * k, screenH: 360 * k };
+  const frames: { label: string; heroX: number; heroY: number; camX: number; ops: number[] }[] = [];
+  const dump = (label: string) => frames.push({ label, heroX: w.hero.x, heroY: w.hero.y, camX: w.camX, ops: buildFrame(w, setup).data });
+  // Every 100 ms from the moment the thrower comes into view until the runner has charged.
+  while (w.enemies[0].x - w.hero.x > 600) stepWorld(w, NO_INPUT, STEP);
+  for (let f = 0; f < 60; f++) {
+    for (let j = 0; j < 6; j++) stepWorld(w, NO_INPUT, STEP);
+    const e = w.enemies[0];
+    const r = w.enemies[1];
+    const a = w.acorns[0];
+    dump(`${(f + 1) * 100}ms thrower dx=${(e.x - w.hero.x).toFixed(0)} windup=${e.windup.toFixed(2)}${a ? ` acorn dx=${(a.x - w.hero.x).toFixed(0)} landT=${a.landT.toFixed(2)}` : ''} runner dx=${(r.x - w.hero.x).toFixed(0)} awake=${r.awake}`);
+  }
+  writeFileSync(OUT!, JSON.stringify({ k, frames }));
+});
+
+(OUT && !CLIP && !FEEL && !POWERCLIP && !WARN_CLIP ? it : it.skip)('dumps frames', () => {
   const flat = { ...CHAPTER_1, floorSegments: [[-600, 20000]] as [number, number][], platforms: [{ sprite: 'cardboard_box' as const, x: 2200, solid: true }], enemies: [], pickups: [], cages: [], checkpoints: [], callouts: [], decor: [], boss: undefined };
   const w = createWorld(flat, 640);
   const k = 2;

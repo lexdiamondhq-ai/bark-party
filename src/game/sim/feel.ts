@@ -59,7 +59,8 @@ export function landImpact(vy: number): number {
  * the faster it runs, and lifts a little when the dog is high up so the landing stays in view.
  */
 export function cameraLead(vx: number, runSpeed: number): number {
-  return Math.max(0, vx / runSpeed - 1) * 90;
+  // Capped so the wagon behind the pup stays mostly in frame on Turbo.
+  return Math.min(140, Math.max(0, vx / runSpeed - 1) * 200);
 }
 
 export function cameraLift(heroY: number): number {

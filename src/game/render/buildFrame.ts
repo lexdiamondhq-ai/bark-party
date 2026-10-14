@@ -5,7 +5,7 @@
 // lists line up op for op, so the canvas can draw any moment in between, which is what keeps a
 // 120 Hz screen moving every frame while the simulation steps at 60.
 
-import { FLOOR_SCREEN_Y, POWER, STEP } from '../constants';
+import { FLOOR_SCREEN_Y, WARN, POWER, STEP } from '../constants';
 import { SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD, heroScale } from '../sim/world';
 import type { World } from '../sim/types';
@@ -362,8 +362,18 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     const o = { flip, syScale: pop, sxScale: 1 / Math.sqrt(pop) };
     if (e.type === 'runner' || e.type === 'thrower') {
       if (e.state === 'stunned') sprite('squirrel_stunned', ex, ey, { ...o, rot: et * 9 });
-      else if (e.type === 'runner') sprite(`squirrel_run_${Math.floor(t * 14) % 4}` as SpriteName, ex, ey, o);
-      else if (e.throwing > 0) sprite(e.throwing > 0.15 ? 'squirrel_throw_0' : 'squirrel_throw_1', ex, ey, o);
+      else if (e.type === 'runner') {
+        // Waiting at the edge: idle. Hopping in: the first run frame, stretched up. Charging: the run cycle.
+        if (!e.awake) sprite(`squirrel_idle_${Math.floor(t * 3 + e.id) % 2}` as SpriteName, ex, ey, o);
+        else if (et < WARN.runnerHop) sprite('squirrel_run_0', ex, ey, o);
+        else sprite(`squirrel_run_${Math.floor(t * 14) % 4}` as SpriteName, ex, ey, o);
+      } else if (e.windup > 0) {
+        // Leaning back with the acorn: the tell before every throw.
+        const w = v.ago ? Math.min(WARN.windup, e.windup + STEP) : e.windup;
+        const u = 1 - w / WARN.windup;
+        const crouch = 1 - 0.1 * Math.sin(Math.PI * Math.min(1, u * 1.15));
+        sprite('squirrel_throw_0', ex, ey, { ...o, rot: (flip ? 1 : -1) * 0.32 * u, syScale: pop * crouch, sxScale: (1 / Math.sqrt(pop)) * (1 / Math.sqrt(crouch)) });
+      } else if (e.throwing > 0) sprite(e.throwing > 0.15 ? 'squirrel_throw_0' : 'squirrel_throw_1', ex, ey, o);
       else sprite(`squirrel_idle_${Math.floor(t * 3 + e.id) % 2}` as SpriteName, ex, ey, o);
     } else if (e.type === 'cat') {
       if (e.state === 'fled') sprite('cat_awake_0', ex, ey, { ...o, rot: -et * 4 });
@@ -376,6 +386,15 @@ function drawScene(world: World, setup: FrameSetup, v: View, out: OpList, probe?
     } else {
       sprite('toy_blocks', ex, ey, { ...o, rot: e.state === 'stunned' ? et * 6 : 0 });
     }
+  }
+
+  // Where each thrown acorn will land: a shadow ring on the floor that grows and darkens as it drops.
+  for (const a of world.acorns) {
+    if (a.landT <= 0 || a.rolling || a.reflected || !visible(a.landX)) continue;
+    out.cur = key(K.acorn, (a.id ?? 0) + 500_000);
+    const left = v.ago ? Math.min(WARN.acornFlight, a.landT + STEP) : a.landT;
+    const u = 1 - left / WARN.acornFlight;
+    sprite('land_mark', a.landX, 1, { scale: 0.6 + 0.55 * u, alpha: 0.5 + 0.5 * u });
   }
 
   // Acorns.

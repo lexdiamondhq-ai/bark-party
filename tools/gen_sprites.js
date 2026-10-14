@@ -966,6 +966,15 @@ function bubble() {
   return g;
 }
 
+// Where a thrown acorn is going to land: a soft shadow ring on the floor that grows as the acorn drops.
+function landMark() {
+  let g = '';
+  g += `<ellipse cx="20" cy="7" rx="18" ry="5.6" fill="${C.mask}" fill-opacity="0.3"/>`;
+  g += `<ellipse cx="20" cy="7" rx="14.5" ry="4.3" fill="none" stroke="${C.cream}" stroke-opacity="0.95" stroke-width="2" stroke-dasharray="5 3.4"/>`;
+  g += `<ellipse cx="20" cy="7" rx="5.5" ry="1.9" fill="${C.mask}" fill-opacity="0.5"/>`;
+  return g;
+}
+
 // Round icons on a gold sticker, for the HUD chip and the present pop.
 function powerIcon(inner) {
   let g = blob(Ci(16, 16, 14), C.gold, C.goldS, { O: 1.6, so: 1.4, off: [1.2, -1.4] });
@@ -1052,6 +1061,7 @@ add('power_mega', 32, 32, 1.6, () => iconMega());
 add('power_turbo', 32, 32, 1.6, () => iconTurbo());
 add('power_ball', 32, 32, 1.6, () => iconBall());
 add('power_bubble', 32, 32, 1.6, () => iconBubble());
+add('land_mark', 40, 14, 0, () => landMark());
 
 const only = process.argv.slice(2);
 const dir = path.resolve(__dirname, '..', 'art', 'svg');

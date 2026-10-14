@@ -117,6 +117,7 @@ export const SPRITES = {
   dust_1: { w: 24, h: 16 },
   dust_2: { w: 24, h: 16 },
   star: { w: 12, h: 12 },
+  land_mark: { w: 40, h: 14 },
   heart: { w: 16, h: 16 },
   bark_burst: { w: 90, h: 56 },
   heart_full: { w: 24, h: 22 },

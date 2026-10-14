@@ -133,7 +133,12 @@ export interface Enemy extends Prev {
   cooldown: number;
   /** Throw animation timer. */
   throwing: number;
+  /** Seconds of lean-back left before the acorn leaves (throwers); 0 when not winding up. */
+  windup: number;
+  /** Runners: true once the runner has entered the view and started its hop. Cats: woken up. */
   awake: boolean;
+  /** Home height, where a runner lands after its hop. */
+  y0: number;
   x0: number;
   x1: number;
   speed: number;
@@ -153,6 +158,9 @@ export interface Acorn extends Prev {
   reflected: boolean;
   alive: boolean;
   spin: number;
+  /** Where a thrown acorn comes down and how long until it does, for the landing mark on the floor. */
+  landX: number;
+  landT: number;
 }
 
 export interface Pickup {

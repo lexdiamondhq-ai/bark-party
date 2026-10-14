@@ -139,8 +139,9 @@ describe('stride in the simulation', () => {
   it('advances one cycle per STRIDE_LEN of ground covered', () => {
     const w = createWorld(flat, 640);
     for (let i = 0; i < 32; i++) stepWorld(w, NO_INPUT, STEP);
-    expect(w.hero.x).toBeCloseTo(160, 0);
-    expect(w.hero.stride).toBeCloseTo((160 / STRIDE_LEN) % 1);
+    const covered = 32 * STEP * flat.runSpeed;
+    expect(w.hero.x).toBeCloseTo(covered, 0);
+    expect(w.hero.stride).toBeCloseTo((covered / STRIDE_LEN) % 1);
   });
 
   it('never cycles faster than MAX_STRIDE_SPEED', () => {

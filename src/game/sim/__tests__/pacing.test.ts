@@ -26,6 +26,14 @@ interface Sight {
   tReach: number | null;
   /** Throwers: when the first acorn left, so the wind-up can be read against tSeen. */
   tThrow: number | null;
+  /** The pup's speed and the gap when the thing came on screen, and how far the pup ran before reaching it. */
+  vxSeen: number;
+  dxSeen: number;
+  ran: number;
+  /** Reached during the boss fight, which keeps its own rhythm (the boss is always on screen). */
+  boss: boolean;
+  /** Answered from afar (a tennis ball, a stomp from a bounce) before it ever got close: not a readability case. */
+  early: boolean;
 }
 
 interface Report {
@@ -68,18 +76,23 @@ function probe(level: LevelDef): Report {
     for (const e of w.enemies) {
       let s = enemies.get(e.id);
       if (!s) {
-        s = { kind: e.type, at: Math.round(e.x), startX: e.x, seen: null, preRun: 0, tSeen: null, tReach: null, tThrow: null };
+        s = { kind: e.type, at: Math.round(e.x), startX: e.x, seen: null, preRun: 0, tSeen: null, tReach: null, tThrow: null, vxSeen: 0, dxSeen: 0, ran: 0, boss: false, early: false };
         enemies.set(e.id, s);
       }
       if (s.tSeen === null && e.state === 'active' && e.x - e.w / 2 < right) {
         s.tSeen = t;
         s.preRun = Math.round(Math.abs(s.startX - e.x));
+        s.vxSeen = Math.round(h.vx);
+        s.dxSeen = Math.round(e.x - h.x);
+        s.ran = h.x;
       }
       if (s.tThrow === null && e.type === 'thrower' && e.throwing > 0) s.tThrow = t;
       // Reached: inside bark range, or already answered (stomped, barked, fled) before that.
       if (s.tReach === null && s.tSeen !== null && (e.x - h.x <= 160 || e.state !== 'active')) {
         s.tReach = t;
         s.seen = +(t - s.tSeen).toFixed(2);
+        s.ran = h.x - s.ran;
+        s.early = e.x - h.x > 200;
       }
     }
     for (const a of w.acorns) {
@@ -87,13 +100,20 @@ function probe(level: LevelDef): Report {
       const id = a.id ?? -1;
       let s = acorns.get(id);
       if (!s) {
-        s = { kind: a.golden ? 'gold acorn' : 'acorn', at: Math.round(a.x), seen: null, preRun: 0, tSeen: null, tReach: null, tThrow: null };
+        s = { kind: a.golden ? 'gold acorn' : 'acorn', at: Math.round(a.x), seen: null, preRun: 0, tSeen: null, tReach: null, tThrow: null, vxSeen: 0, dxSeen: 0, ran: 0, boss: w.phase === 'boss', early: false };
         acorns.set(id, s);
       }
-      if (s.tSeen === null && a.x < right) s.tSeen = t;
-      if (s.tReach === null && (a.x - h.x <= 160 || a.reflected)) {
+      if (s.tSeen === null && a.x < right) {
+        s.tSeen = t;
+        s.vxSeen = Math.round(h.vx);
+        s.dxSeen = Math.round(a.x - h.x);
+        s.ran = h.x;
+      }
+      if (s.tReach === null && (a.x - h.x <= 160 || a.reflected || !a.alive)) {
         s.tReach = t;
         s.seen = s.tSeen === null ? 0 : +(t - s.tSeen).toFixed(2);
+        s.ran = h.x - s.ran;
+        s.early = a.x - h.x > 200;
       }
     }
     for (const ev of drainEvents(w)) {
@@ -114,16 +134,37 @@ function print(id: string, r: Report) {
   const rows = r.sights
     .filter((s) => s.tReach !== null)
     .sort((a, b) => a.tReach! - b.tReach!)
-    .map((s) => `${s.tReach!.toFixed(1).padStart(6)}s  ${s.kind.padEnd(11)} x=${String(s.at).padStart(5)}  seen ${String(s.seen).padStart(5)}s  pre-run ${s.preRun}${s.tThrow !== null ? `  threw after ${(s.tThrow - s.tSeen!).toFixed(2)}s` : ''}`);
+    .map((s) => `${s.tReach!.toFixed(1).padStart(6)}s  ${s.kind.padEnd(11)} x=${String(s.at).padStart(5)}  seen ${String(s.seen).padStart(5)}s  from ${s.dxSeen} ahead at vx ${s.vxSeen}${s.preRun ? `  pre-run ${s.preRun}` : ''}${s.tThrow !== null ? `  threw after ${(s.tThrow - s.tSeen!).toFixed(2)}s` : ''}${s.boss ? '  (boss)' : ''}${s.early ? '  (answered early)' : ''}`);
   const calls = r.callouts.map((c) => `${c.t.toFixed(1).padStart(6)}s  "${c.text}"${c.busy.length ? `  <- busy: ${c.busy.join(', ')}` : ''}`);
   const hurts = r.hurts.map((h) => `${h.t.toFixed(1).padStart(6)}s  hurt at x=${h.x} by ${h.near}`);
   console.log([`${id}: ${r.phase}`, ...rows, '', ...calls, '', ...hurts].join('\n'));
 }
+
+/** Seconds a thing must be on screen before it needs an answer (reaching bark range). */
+const BUDGET: Record<string, number> = { runner: 1.0, thrower: 1.3, cat: 1.3, blocks: 1.4, vacuum: 1.0, acorn: 0.6, 'gold acorn': 0.6 };
+/** Seconds a thrower leans back before the acorn leaves, as the player sees it. */
+const MIN_WINDUP = 0.45;
+/** Two answers closer than this stack; throwers themselves stand still, so only their acorns count. */
+const MIN_BEAT = 0.6;
 
 describe('pacing: every hazard is on screen long enough to answer', () => {
   it.each([CHAPTER_1, CHAPTER_2])('$id', (level) => {
     const r = probe(level);
     print(level.id, r);
     expect(r.phase).toBe('won');
+    const live = r.sights.filter((s) => s.tReach !== null && !s.boss && !s.early);
+    // Budgets are in seconds at the level's run speed: Turbo and zoomies are the player's own choice,
+    // so a faster pup is held to the same distance, not the same time (with a hard floor for acorns),
+    // and a pup held up at a solid piece still had the real seconds.
+    const seenAtPace = (s: Sight) => Math.max(s.seen!, s.ran / level.runSpeed);
+    const short = live.filter((s) => seenAtPace(s) < BUDGET[s.kind] || s.seen! < 0.35).map((s) => `${s.kind}@${s.at} seen ${s.seen}s (${seenAtPace(s).toFixed(2)}s at pace)`);
+    expect(short).toEqual([]);
+    const quick = live.filter((s) => s.tThrow !== null && s.tThrow - s.tSeen! < MIN_WINDUP).map((s) => `thrower@${s.at}`);
+    expect(quick).toEqual([]);
+    const answers = live.filter((s) => s.kind !== 'thrower').sort((a, b) => a.tReach! - b.tReach!);
+    const stacked = answers.filter((s, i) => i > 0 && s.tReach! - answers[i - 1].tReach! < MIN_BEAT).map((s) => `${s.kind}@${s.at}`);
+    expect(stacked).toEqual([]);
+    const busy = r.callouts.filter((c) => c.busy.some((b) => !b.startsWith('gold acorn'))).map((c) => `"${c.text}" with ${c.busy.join(', ')}`);
+    expect(busy).toEqual([]);
   });
 });

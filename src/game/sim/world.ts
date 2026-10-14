@@ -1,4 +1,4 @@
-import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, POWER, STRIDE_LEN } from '../constants';
+import { BOARD_TIME, HERO_BOX, HERO_SCREEN_X, MAX_HEARTS, MAX_STRIDE_SPEED, PHYS, POWER, STRIDE_LEN, WARN } from '../constants';
 import type { LevelDef } from '../level/types';
 import { SPRITES, type SpriteName } from '../sprites';
 import { NO_BOOSTS, type RunBoosts } from '../../engine/progress';
@@ -241,7 +241,9 @@ function makeEnemy(e: LevelDef['enemies'][number], id: number): Enemy {
     t: 0,
     cooldown: 0.6,
     throwing: 0,
+    windup: 0,
     awake: false,
+    y0: 0,
     x0: 0,
     x1: 0,
     speed: 0,
@@ -250,9 +252,9 @@ function makeEnemy(e: LevelDef['enemies'][number], id: number): Enemy {
   };
   switch (e.type) {
     case 'runner':
-      return { ...base, x: e.x, y: e.y ?? 0, w: 40, h: 36, speed: e.speed ?? 95 };
+      return { ...base, x: e.x, y: e.y ?? 0, y0: e.y ?? 0, w: 40, h: 36, speed: e.speed ?? 95 };
     case 'thrower':
-      return { ...base, x: e.x, y: e.y ?? 0, w: 40, h: 40, cooldown: 0.4, speed: e.every ?? 1.6 };
+      return { ...base, x: e.x, y: e.y ?? 0, w: 40, h: 40, cooldown: 0, speed: e.every ?? 1.6 };
     case 'cat':
       return { ...base, x: e.x, y: e.y ?? 0, w: 56, h: 40 };
     case 'vacuum':
@@ -736,20 +738,47 @@ function stepEnemies(world: World, dt: number) {
 
     switch (e.type) {
       case 'runner': {
-        e.x -= e.speed * dt;
         e.facing = -1;
+        // A runner waits just past the right edge, hops on the spot the moment it is in view, then charges:
+        // the player always sees it arrive before it comes at them.
+        if (!e.awake) {
+          if (e.x - e.w / 2 > world.camX + world.viewW + 8) break;
+          e.awake = true;
+          e.t = 0;
+          e.vy = WARN.runnerHopVy;
+          e.pop = 0.18;
+          for (let i = 0; i < 3; i++) spark(world, e.x, e.y + e.h, 'star');
+          sfx(world, 'squirrel_chitter');
+        }
+        if (e.vy !== 0 || e.y > e.y0) {
+          e.y += e.vy * dt;
+          e.vy -= PHYS.gravity * dt;
+          if (e.y <= e.y0) {
+            e.y = e.y0;
+            e.vy = 0;
+          }
+        }
+        if (e.t >= WARN.runnerHop) e.x -= e.speed * dt;
         break;
       }
       case 'thrower': {
         e.facing = -1;
         e.throwing = Math.max(0, e.throwing - dt);
         const dx = e.x - h.x;
-        if (dx > 40 && dx < 460) {
-          e.cooldown -= dt;
-          if (e.cooldown <= 0) {
-            e.cooldown = e.speed;
+        if (e.windup > 0) {
+          e.windup -= dt;
+          if (e.windup <= 0) {
+            e.windup = 0;
             e.throwing = 0.3;
             throwAcorn(world, e.x - 16, e.y + 34, h, false);
+          }
+        } else if (dx > 40 && dx < WARN.throwRange) {
+          e.cooldown -= dt;
+          // One acorn at a time: never throw while a live one is still ahead of the pup.
+          const busy = world.acorns.some((a) => a.alive && !a.reflected && a.x - h.x > -20 && a.x - h.x < WARN.acornSpacing);
+          if (e.cooldown <= 0 && !busy) {
+            e.cooldown = e.speed;
+            e.windup = WARN.windup;
           }
         }
         break;
@@ -853,8 +882,9 @@ function stepEnemies(world: World, dt: number) {
 }
 
 function throwAcorn(world: World, x: number, y: number, target: Hero, golden: boolean) {
-  // Aim where the dog will be when the acorn comes down to its head height.
-  const tFly = 0.8;
+  // Aim where the dog will be when the acorn comes down to its head height, in a high, slow arc
+  // the player can read, with a mark on the floor where it lands.
+  const tFly = WARN.acornFlight;
   const tx = target.x + world.level.runSpeed * tFly;
   const ty = target.y + 30;
   world.acorns.push({
@@ -867,6 +897,8 @@ function throwAcorn(world: World, x: number, y: number, target: Hero, golden: bo
     reflected: false,
     alive: true,
     spin: 0,
+    landX: tx,
+    landT: tFly,
   });
   sfx(world, 'acorn_throw');
 }
@@ -877,6 +909,7 @@ function stepAcorns(world: World, dt: number) {
   for (const a of world.acorns) {
     if (!a.alive) continue;
     a.spin += dt * (a.rolling ? -14 : 10);
+    if (a.landT > 0 && !a.rolling && !a.reflected) a.landT = Math.max(0, a.landT - dt);
     if (a.rolling) {
       a.x += a.vx * dt;
       a.y = 0;
@@ -1049,6 +1082,8 @@ function stepBoss(world: World, dt: number) {
         reflected: false,
         alive: true,
         spin: 0,
+        landX: 0,
+        landT: 0,
       });
       sfx(world, 'acorn_throw');
       if (b.hits === 0 && b.pattern < 5) emit(world, { type: 'callout', coach: 'leo', text: 'Golden acorn! Bark it back!' });

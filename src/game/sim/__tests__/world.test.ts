@@ -113,7 +113,7 @@ describe('enemies', () => {
   it('stomping a squirrel stuns it and bounces the dog', () => {
     const w = createWorld(flat({ enemies: [{ type: 'runner', x: 330, speed: 0 }] }), 640);
     let f = 0;
-    run(w, 1, () => (f++ === 22 ? press : hold));
+    run(w, 1.2, () => (f++ === 30 ? press : hold));
     expect(w.enemies.every((e) => e.state !== 'active')).toBe(true);
     expect(w.hero.hearts).toBe(3);
   });

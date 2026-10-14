@@ -4,7 +4,7 @@ import type { LevelDef } from './types';
 // The Nutsy Gang went for the party snacks next. Counters, stools and the fridge make a
 // staircase up high, the robot vacuum patrols the tiles, and the gang's cook is waiting at the end.
 //
-// Reach guide at runSpeed 320: a single jump clears about 200 units of pit and 130 high;
+// Reach guide at runSpeed 280 (gravity and jumps scaled with it): a single jump clears about 200 units of pit and 130 high;
 // a double jump clears about 350 and 230 high. Counter tops are 70 high, stools 58, the fridge 158.
 
 const bones = (x0: number, n: number, gap: number, y = 18) =>
@@ -25,7 +25,7 @@ export const CHAPTER_2: LevelDef = {
   background: 'room_kitchen',
   floor: 'floor_kitchen',
   music: 'music_kitchen',
-  runSpeed: 320,
+  runSpeed: 280,
   floorSegments: [
     [-600, 1700],
     [1880, 3500],
@@ -60,13 +60,13 @@ export const CHAPTER_2: LevelDef = {
   ],
   enemies: [
     { type: 'runner', x: 1300 },
-    { type: 'thrower', x: 2120, y: 70, every: 1.7 },
-    { type: 'runner', x: 2300, speed: 120 },
+    { type: 'thrower', x: 2080, y: 70, every: 1.7 },
+    { type: 'runner', x: 2420, speed: 120 },
     { type: 'cat', x: 2755, y: 70 },
     { type: 'runner', x: 3300, speed: 140 },
     { type: 'vacuum', x0: 3900, x1: 4250, speed: 100 },
-    { type: 'thrower', x: 4380, y: 70, every: 1.5 },
-    { type: 'runner', x: 4600 },
+    { type: 'thrower', x: 4420, y: 70, every: 1.5 },
+    { type: 'runner', x: 4700 },
     { type: 'vacuum', x0: 5500, x1: 5900, speed: 120 },
     { type: 'thrower', x: 6380, y: 70, every: 1.4 },
     { type: 'runner', x: 6850, speed: 150 },
@@ -101,11 +101,11 @@ export const CHAPTER_2: LevelDef = {
   checkpoints: [1900, 3750, 5460, 7150],
   callouts: [
     { x: 150, coach: 'leo', text: 'The snacks went this way. Up the stools!' },
-    { x: 1350, coach: 'maya', text: 'Squirrel on the tiles. Bounce it!' },
-    { x: 2450, coach: 'hana', text: 'Stool, counter, fridge: climb for the golden bone!' },
-    { x: 3850, coach: 'alex', text: 'The robot vacuum! Jump on it to bounce high.' },
-    { x: 5450, coach: 'maya', text: 'Slide under the acorns, then zoom!' },
-    { x: 7150, coach: 'leo', text: 'The cook is up ahead. Bark the golden acorns back!' },
+    { x: 700, coach: 'maya', text: 'Squirrel on the tiles. Bounce it!' },
+    { x: 2250, coach: 'hana', text: 'Stool, counter, fridge: climb for the golden bone!' },
+    { x: 3400, coach: 'alex', text: 'The robot vacuum! Jump on it to bounce high.' },
+    { x: 5100, coach: 'maya', text: 'Slide under the acorns, then zoom!' },
+    { x: 6700, coach: 'leo', text: 'The cook is up ahead. Bark the golden acorns back!' },
   ],
   decor: [
     { sprite: 'dog_bowl', x: 180 },

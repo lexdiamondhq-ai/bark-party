@@ -31,7 +31,9 @@ describe('feel rules', () => {
 
   it('leads the camera only when the dog runs faster than the level speed', () => {
     expect(cameraLead(300, 300)).toBe(0);
-    expect(cameraLead(375, 300)).toBeCloseTo(22.5);
+    expect(cameraLead(325, 260)).toBeCloseTo(50);
+    // Turbo with zoomies on top still leaves the wagon mostly in frame.
+    expect(cameraLead(488, 260)).toBe(140);
   });
 
   it('lifts the camera only when the dog is well off the floor', () => {

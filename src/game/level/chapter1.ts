@@ -5,8 +5,10 @@ import type { LevelDef } from './types';
 // The squirrel gang crashed Biscuit's Bark Party prep, locked the pups in crates and ran off
 // with the birthday cake. Run through the living room, free Pepper and Nacho, and catch the boss.
 //
-// Reach guide at runSpeed 300: a single jump clears about 190 units of pit and 130 high;
-// a double jump clears about 330 and 230 high.
+// Reach guide at runSpeed 260 (gravity and jumps scaled with it): a single jump clears about
+// 190 units of pit and 130 high; a double jump clears about 330 and 230 high.
+// Pacing: hazards sit at least 0.8 s apart and every coach tip fires 1.5 s (390 units) before
+// the thing it talks about; src/game/sim/__tests__/pacing.test.ts holds the line.
 
 const bones = (x0: number, n: number, gap: number, y = 18) =>
   Array.from({ length: n }, (_, i) => ({ kind: 'bone' as const, x: x0 + i * gap, y }));
@@ -26,7 +28,7 @@ export const CHAPTER_1: LevelDef = {
   background: 'room_living',
   floor: 'floor_living',
   music: 'music_living',
-  runSpeed: 300,
+  runSpeed: 260,
   floorSegments: [
     [-600, 1500],
     [1660, 3300],
@@ -60,15 +62,13 @@ export const CHAPTER_1: LevelDef = {
   enemies: [
     { type: 'runner', x: 2050 },
     { type: 'blocks', x: 2550 },
-    { type: 'runner', x: 3150, speed: 120 },
     { type: 'thrower', x: 4010, y: 168, every: 1.8 },
     { type: 'runner', x: 4400 },
     { type: 'cat', x: 5205, y: 48 },
     { type: 'vacuum', x0: 5300, x1: 5650, speed: 90 },
-    { type: 'thrower', x: 6000 },
-    { type: 'runner', x: 6200, y: 60 },
-    { type: 'blocks', x: 6700 },
-    { type: 'runner', x: 7000, speed: 140 },
+    { type: 'thrower', x: 5950 },
+    { type: 'runner', x: 6300, y: 60 },
+    { type: 'runner', x: 7060, speed: 140 },
     { type: 'thrower', x: 7520, y: 50, every: 1.5 },
   ],
   pickups: [
@@ -102,12 +102,12 @@ export const CHAPTER_1: LevelDef = {
   callouts: [
     { x: 150, coach: 'maya', text: 'Tap to jump. Hold for a big one!' },
     { x: 1250, coach: 'leo', text: 'Tap again in the air to double jump!' },
-    { x: 1950, coach: 'alex', text: 'Squirrel! Bounce on its head!' },
-    { x: 2850, coach: 'hana', text: 'Pepper is in that crate. Run into it!' },
-    { x: 3700, coach: 'leo', text: 'Acorns! Hit BARK to swat them away.' },
-    { x: 4950, coach: 'maya', text: 'Swipe down to slide under trouble.' },
-    { x: 5050, coach: 'hana', text: 'Shh, a sleeping cat. Or bark it awake!' },
-    { x: 6600, coach: 'alex', text: 'There goes the cake! After him!' },
+    { x: 1470, coach: 'alex', text: 'Squirrel! Bounce on its head!' },
+    { x: 2700, coach: 'hana', text: 'Pepper is in that crate. Run into it!' },
+    { x: 3250, coach: 'leo', text: 'Acorns! Hit BARK to swat them away.' },
+    { x: 4560, coach: 'hana', text: 'Shh, a sleeping cat. Or bark it awake!' },
+    { x: 5100, coach: 'maya', text: 'Swipe down to slide under trouble.' },
+    { x: 6250, coach: 'alex', text: 'There goes the cake! After him!' },
   ],
   decor: [
     { sprite: 'rug', x: 200 },
