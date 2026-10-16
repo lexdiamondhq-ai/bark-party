@@ -19,7 +19,7 @@ export const SLACK = 0.5;
 const RATE_GAIN = 0.1;
 const RATE_MAX = 0.1;
 
-/** Where the picture is in time, in simulation steps, and the two newest lists. */
+/** Where the picture is in time, in simulation steps, and the three newest lists. */
 export interface Playhead {
   /** The step the picture shows (fractional); -1 before the first list. */
   at: number;
@@ -28,45 +28,67 @@ export interface Playhead {
   /** Speed of the playhead against the clock; eases the slack back after a late or early list. */
   rate: number;
   cur: Float64Array | null;
-  /** The list one step before cur, kept so a list that arrives early never cuts a blend short. */
+  /**
+   * The lists one and two steps before cur, kept so lists that arrive early, or two at once (a tick that
+   * stepped twice), never cut a blend short.
+   */
   old: Float64Array | null;
+  older: Float64Array | null;
+  /** A list came in since the last frame. */
+  arrived: boolean;
   /** What to draw this frame. */
   list: Float64Array | null;
   a: number;
+  /** The moment drawn last frame (in steps), and how often the picture stood still or jumped (for the frame meter). */
+  shown: number;
+  held: number;
+  skips: number;
 }
 
 export function newPlayhead(): Playhead {
-  return { at: -1, last: 0, rate: 1, cur: null, old: null, list: null, a: 0 };
+  return { at: -1, last: 0, rate: 1, cur: null, old: null, older: null, arrived: false, list: null, a: 0, shown: -1, held: 0, skips: 0 };
+}
+
+/** Takes the JS thread's next list. Lists come in step order; one that does not follow on from the last starts the history afresh. */
+export function receiveList(p: Playhead, list: Float64Array) {
+  'worklet';
+  if (list === p.cur) return;
+  const n = list[0];
+  const follows = p.cur !== null && p.cur[0] === n - 1;
+  p.older = follows && p.old !== null && p.old[0] === n - 2 ? p.old : null;
+  p.old = follows ? p.cur : null;
+  p.cur = list;
+  p.arrived = true;
 }
 
 /**
- * Moves the playhead to display time `now` (ms) with `list` the newest list, and sets p.list and p.a to
- * what should be drawn. Each list holds two moments, its step and the one before, so with the list before
- * it the picture can be anywhere in the last two steps; it never runs past the newest moment (no guessing).
+ * Moves the playhead to display time `now` (ms) and sets p.list and p.a to what should be drawn. Each list
+ * holds two moments, its step and the one before, so with the two lists before it the picture can be
+ * anywhere in the last three steps; it never runs past the newest moment (no guessing). With `count`, a
+ * frame where the picture stood still or jumped is counted (p.held, p.skips); the canvas turns it off while
+ * the run is paused or counting in, when no lists come and standing still is right.
  */
-export function advancePlayhead(p: Playhead, now: number, list: Float64Array) {
+export function movePlayhead(p: Playhead, now: number, count = false) {
   'worklet';
+  const list = p.cur;
+  if (!list) return;
   const n = list[0];
-  let arrived = false;
-  if (list !== p.cur) {
-    p.old = p.cur && p.cur[0] === n - 1 ? p.cur : null;
-    p.cur = list;
-    arrived = true;
-  }
+  let dt = 0;
   if (p.at < 0) {
     // The first list: start at its beginning, like every later list would.
     p.at = n - 1;
   } else {
-    const dt = Math.min(100, Math.max(0, now - p.last));
+    dt = Math.min(100, Math.max(0, now - p.last));
     p.at += (dt / STEP_MS) * p.rate;
   }
   p.last = now;
-  const lo = p.old ? n - 2 : n - 1;
+  const lo = n - (p.older ? 3 : p.old ? 2 : 1);
   // Out of new moments (the JS thread is late): hold the newest one.
   if (p.at > n) p.at = n;
-  // Too far behind (the world took several steps at once, or a new run): skip ahead to the oldest moment there is.
+  // Too far behind (several steps at once with no list between, or a new run): skip ahead to the oldest moment there is.
   if (p.at < lo) p.at = lo;
-  if (arrived) {
+  if (p.arrived) {
+    p.arrived = false;
     // Lean back toward the slack: a little slower when the lists come early, a little faster when late.
     const off = n - p.at - (1 + SLACK);
     p.rate = 1 + Math.max(-RATE_MAX, Math.min(RATE_MAX, off * RATE_GAIN));
@@ -74,10 +96,28 @@ export function advancePlayhead(p: Playhead, now: number, list: Float64Array) {
   if (p.at >= n - 1 || !p.old) {
     p.list = list;
     p.a = Math.max(0, p.at - (n - 1));
-  } else {
+  } else if (p.at >= n - 2 || !p.older) {
     p.list = p.old;
-    p.a = p.at - (n - 2);
+    p.a = Math.max(0, p.at - (n - 2));
+  } else {
+    p.list = p.older;
+    p.a = p.at - (n - 3);
   }
+  const shown = p.list[0] - 1 + p.a;
+  if (count && p.shown >= 0 && dt > 0) {
+    const want = dt / STEP_MS;
+    const moved = shown - p.shown;
+    if (moved < want * 0.25) p.held++;
+    else if (moved > want * 1.75) p.skips++;
+  }
+  p.shown = shown;
+}
+
+/** One display frame with `list` the newest list: receiveList, then movePlayhead. */
+export function advancePlayhead(p: Playhead, now: number, list: Float64Array, count = false) {
+  'worklet';
+  receiveList(p, list);
+  movePlayhead(p, now, count);
 }
 
 /** One paint and a few plain objects, made once on the UI thread and reused by every op of every frame. */
