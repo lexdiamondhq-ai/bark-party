@@ -24,6 +24,7 @@ import Animated, {
   ZoomIn,
   type SharedValue,
 } from 'react-native-reanimated';
+import { scheduleOnUI } from 'react-native-worklets';
 
 import { colors, fonts, springs } from '../theme/tokens';
 import { initAudio, pauseMusic, playMusic, playSfx, preloadSfx, isMuted, setMuted } from './audio';
@@ -35,7 +36,10 @@ import { GameCanvas } from './render/GameCanvas';
 import { ATLAS_PAGES } from './render/atlasImages';
 import atlas from './render/atlas.json';
 import { buildFrame, OpList, type AtlasData, type FrameSetup, type PupProbe } from './render/buildFrame';
-import { FRAME_STATS, LEGS_PROBE, type UiStats } from './render/devProbe';
+import { FRAME_STATS, LEGS_PROBE } from './render/devProbe';
+import { deliverList, newInbox, noteDid, setLive, type Inbox } from './render/drawOps';
+import { addJs, DID_HAPTIC, DID_HUD, DID_SOUND, meterLines, newJsMeter, onUiReport, startJsSecond, type JsMeter } from './render/frameMeter';
+import { countFrames, holdSteps, newStepClock, takeSteps } from './render/stepClock';
 import { NO_INPUT, type GameEvent, type Input, type PowerKind } from './sim/types';
 import { cameraTarget, continueFromCheckpoint, createWorld, drainEvents, levelResult, resizeView, setReduceMotion, snapPrev, stepWorld, type LevelResult } from './sim/world';
 import type { DogId } from './sprites';
@@ -85,14 +89,9 @@ const SWIPE_DOWN = 26;
 const BARK_SIZE = 96;
 
 /**
- * Frame timing. A frame within SNAP seconds of one step counts as exactly one step. The JS thread's frames
- * run at the step rate (60 Hz) and their times jitter by a few milliseconds; without this the step counter
- * sits on the edge and the world steps twice in one frame and not at all in the next, about one frame in four
- * (measured in the simulator), which shows as a stop and a jump. Real frame lengths come in whole display
- * frames (8.3, 16.7, 25, 33 ms), so a missed frame is never snapped. At most MAX_STEPS steps run in one frame;
- * after a longer stall the world waits for it instead of racing ahead, so the picture never skips more than a step.
+ * At most this many steps run in one tick (stepClock.ts counts them); after a longer stall the world waits
+ * for it instead of racing ahead, and the canvas has a list for every step it ran.
  */
-const SNAP = 0.004;
 const MAX_STEPS = 2;
 /** If the level's pictures have not loaded by then (a dropped dev tunnel), the count-in starts anyway. */
 const ART_WAIT_MS = 30000;
@@ -283,6 +282,29 @@ const HudBanner = memo(function HudBanner({ hud }: { hud: Hud }) {
   );
 });
 
+/** The frame meter (FRAME_STATS): its own text, updated when the UI thread reports, so nothing else re-renders. */
+const FrameMeter = memo(function FrameMeter({ js, left }: { js: JsMeter; left: number }) {
+  const [lines, setLines] = useState<string[]>([]);
+  useEffect(
+    () =>
+      onUiReport((ui) => {
+        setLines(meterLines(ui, js));
+        startJsSecond(js);
+      }),
+    [js],
+  );
+  if (!lines.length) return null;
+  return (
+    <View pointerEvents="none" style={[styles.stats, { left }]}>
+      {lines.map((line, i) => (
+        <Text key={i} style={styles.statsLine}>
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+});
+
 /** The run from the player's side: a count-in, then running, with pauses, game over and the win. */
 type RunState = 'ready' | 'running' | 'paused' | 'gameover' | 'won';
 
@@ -306,7 +328,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       banner: null,
     }),
   );
-  const ops = useSharedValue<Float64Array>(new Float64Array(0));
+  const inbox = useSharedValue<Inbox>(newInbox());
   const powerLeft = useSharedValue<PowerLeft>({ mega: 0, turbo: 0, ball: 0 });
   const input = useRef<Input>({ ...NO_INPUT });
   const jumpTouch = useRef<{ id: string; y: number; slid: boolean } | null>(null);
@@ -322,13 +344,16 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const [countIn, setCountIn] = useState<'ready' | 'go' | null>('ready');
   const [muted, setMutedState] = useState(isMuted());
   const [artReady, setArtReady] = useState(false);
-  const uiStats = useSharedValue<UiStats>({ fps: 0, max: 0, over: 0 });
-  const [statsText, setStatsText] = useState('');
+  const [jsMeter] = useState(newJsMeter);
   const markArtReady = useCallback(() => setArtReady(true), []);
-  const setRun = useCallback((s: RunState) => {
-    runState.current = s;
-    setState(s);
-  }, []);
+  const setRun = useCallback(
+    (s: RunState) => {
+      runState.current = s;
+      setState(s);
+      scheduleOnUI(setLive, inbox, s === 'running' || s === 'won');
+    },
+    [inbox],
+  );
 
   const barkScale = useSharedValue(1);
   const barkStyle = useAnimatedStyle(() => ({ transform: [{ scale: barkScale.value }] }));
@@ -407,11 +432,15 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
   const handleEvents = useEffectEvent((events: GameEvent[]) => {
     for (const e of events) {
       switch (e.type) {
-        case 'sfx':
+        case 'sfx': {
+          const t0 = FRAME_STATS ? performance.now() : 0;
           playSfx(e.name);
+          if (FRAME_STATS) addJs(jsMeter, { sounds: 1, soundMs: performance.now() - t0 });
           break;
+        }
         case 'haptic':
           if (Platform.OS === 'web') break;
+          if (FRAME_STATS) addJs(jsMeter, { haptics: 1 });
           if (e.kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           else if (e.kind === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
           else if (e.kind === 'selection') Haptics.selectionAsync().catch(() => {});
@@ -466,7 +495,7 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
     }
   });
 
-  // The game loop: fixed 60 Hz steps on the JS thread, then one list of draw ops for the UI thread.
+  // The game loop: fixed 60 Hz steps on the JS thread, and a list of draw ops for the UI thread per step.
   useEffect(() => {
     const out = new OpList();
     const pup: PupProbe = { legA: 0, legB: 0, legT: 0, tuckT: 0 };
@@ -479,87 +508,80 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
       reduceMotion: false,
       probe: pup,
     };
+    const clock = newStepClock();
     let raf = 0;
     let last = 0;
-    let acc = 0;
     let lastBones = -1;
     let drawn = false;
     let barsOn = false;
-    let jsStart = 0;
-    let jsFrames = 0;
-    let jsMax = 0;
-    let jsOver = 0;
-    let steps0 = 0;
-    let steps2 = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      let elapsed = last ? (now - last) / 1000 : 0;
+      const t0 = FRAME_STATS ? performance.now() : 0;
+      const gap = last ? now - last : 0;
       last = now;
+      const frames = countFrames(clock, now);
       const s = runState.current;
-      if (FRAME_STATS) {
-        const gap = elapsed * 1000;
-        jsFrames++;
-        if (gap > jsMax) jsMax = gap;
-        if (gap > 25) jsOver++;
-        if (!jsStart) jsStart = now;
-        else if (now - jsStart >= 1000) {
-          const u = uiStats.get();
-          setStatsText(`JS ${jsFrames}Hz worst ${jsMax.toFixed(0)}ms >25ms:${jsOver} 0step:${steps0} 2step:${steps2} | UI ${u.fps}Hz worst ${u.max}ms >25ms:${u.over} | ops ${out.count} ${s}`);
-          jsStart = now;
-          jsFrames = 0;
-          jsMax = 0;
-          jsOver = 0;
-          steps0 = 0;
-          steps2 = 0;
-        }
-      }
-      if (s !== 'running' && s !== 'won') {
-        acc = 0;
+      const live = s === 'running' || s === 'won';
+      // The meter counts slips only while the run is on, not during the count-in or on the pause screen.
+      if (FRAME_STATS && gap) addJs(jsMeter, live ? { ticks: 1, worst: gap, late: gap > 25 ? 1 : 0 } : { ticks: 1 });
+      let steps = 0;
+      if (live) steps = takeSteps(clock, frames, MAX_STEPS);
+      else {
+        holdSteps(clock);
         // Before "Go!", draw the still scene once so the count-in has something behind it.
         if (s !== 'ready' || drawn) return;
       }
-      if (Math.abs(elapsed - STEP) < SNAP) elapsed = STEP;
-      acc += elapsed;
-      let steps = 0;
-      while (s !== 'ready' && acc >= STEP && steps < MAX_STEPS) {
-        const i = input.current;
-        stepWorld(world, i, STEP);
-        stepCount.current++;
-        i.jumpPressed = false;
-        i.slidePressed = false;
-        i.barkPressed = false;
-        acc -= STEP;
-        steps++;
-      }
-      if (acc >= STEP) acc = 0;
-      if (s === 'running') {
-        if (steps === 0) steps0++;
-        else if (steps >= 2) steps2++;
+      if (FRAME_STATS && s === 'running') {
+        if (steps === 0) addJs(jsMeter, { zero: 1 });
+        else if (steps >= 2) addJs(jsMeter, { two: 1 });
       }
       if (steps === 0 && s !== 'ready') return;
       drawn = true;
-      // One op list per step; the canvas draws the frames in between (see GameCanvasImpl).
+      // One list per step, each queued for the UI thread in order; the canvas draws the frames in between
+      // (see GameCanvasImpl). A tick that steps twice hands over both, so the picture never skips the first.
       const p = probe.current;
-      const t0 = p ? performance.now() : 0;
+      let buildMs = 0;
+      let setMs = 0;
       setup.reduceMotion = reduceMotion.current;
-      buildFrame(world, setup, out);
-      const t1 = p ? performance.now() : 0;
-      ops.set(out.handOff(stepCount.current, world.prev.t === world.t));
+      for (let i = 0; i < Math.max(1, steps); i++) {
+        if (steps) {
+          const inp = input.current;
+          stepWorld(world, inp, STEP);
+          stepCount.current++;
+          inp.jumpPressed = false;
+          inp.slidePressed = false;
+          inp.barkPressed = false;
+        }
+        const b0 = p ? performance.now() : 0;
+        buildFrame(world, setup, out);
+        const b1 = p ? performance.now() : 0;
+        scheduleOnUI(deliverList, inbox, out.handOff(stepCount.current, world.prev.t === world.t));
+        if (p) {
+          buildMs = b1 - b0;
+          setMs = performance.now() - b1;
+        }
+      }
       if (p) {
         if (!p.until) p.until = now + 1000;
-        p.rows.push({ dt: elapsed, steps, legA: pup.legA, legB: pup.legB, legT: pup.legT, tuckT: pup.tuckT, buildMs: t1 - t0, setMs: performance.now() - t1, ops: out.count });
+        p.rows.push({ dt: gap / 1000, steps, legA: pup.legA, legB: pup.legB, legT: pup.legT, tuckT: pup.tuckT, buildMs, setMs, ops: out.count });
         if (now >= p.until) {
           probe.current = null;
           reportProbe(p);
         }
       }
+      const t1 = FRAME_STATS ? performance.now() : 0;
+      let did = 0;
       const events = drainEvents(world);
-      if (events.length) handleEvents(events);
+      if (events.length) {
+        for (const e of events) did |= e.type === 'sfx' || e.type === 'music' ? DID_SOUND : e.type === 'haptic' ? DID_HAPTIC : e.type === 'checkpoint' ? 0 : DID_HUD;
+        handleEvents(events);
+      }
       // Power chips appear and go as powers start and end; their bars drain on the UI thread.
       const pw = world.hero.powers;
       const on = hud.get().powers;
       if (on.mega !== pw.mega > 0 || on.turbo !== pw.turbo > 0 || on.ball !== pw.ball > 0 || on.bubble !== pw.bubble) {
         hud.set({ powers: { mega: pw.mega > 0, turbo: pw.turbo > 0, ball: pw.ball > 0, bubble: pw.bubble } });
+        did |= DID_HUD;
       }
       const timed = pw.mega > 0 || pw.turbo > 0 || pw.ball > 0;
       if (timed || barsOn) powerLeft.set({ mega: pw.mega, turbo: pw.turbo, ball: pw.ball });
@@ -568,11 +590,17 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         if (lastBones >= 0) boneBump.set(withSequence(withTiming(1.3, { duration: 60 }), withSpring(1, springs.bouncy)));
         lastBones = world.bones;
         hud.set({ bones: world.bones });
+        did |= DID_HUD;
+      }
+      if (FRAME_STATS) {
+        if (did) scheduleOnUI(noteDid, inbox, did);
+        jsMeter.runTime = world.t;
+        if (live) addJs(jsMeter, { tickMs: t1 - t0, eventsMs: performance.now() - t1 });
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [boneBump, height, hud, k, ops, powerLeft, uiStats, width, world]);
+  }, [boneBump, height, hud, inbox, jsMeter, k, powerLeft, width, world]);
 
   const togglePause = () => {
     const s = runState.current;
@@ -676,13 +704,8 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchEnd}
       >
-        <GameCanvas ops={ops} width={width} height={height} background={ROOMS[level.background]} onReady={markArtReady} uiStats={FRAME_STATS ? uiStats : undefined} />
+        <GameCanvas inbox={inbox} width={width} height={height} background={ROOMS[level.background]} onReady={markArtReady} meter={FRAME_STATS} />
       </View>
-      {FRAME_STATS && statsText ? (
-        <Text pointerEvents="none" style={[styles.stats, { left: pad }]}>
-          {statsText}
-        </Text>
-      ) : null}
 
       {/* HUD */}
       <View pointerEvents="box-none" style={[styles.hud, { left: pad, top: 12 }]}>
@@ -757,6 +780,9 @@ export function GameView({ level, boosts = NO_BOOSTS, onWin, onQuit, startX }: P
           </View>
         </Animated.View>
       )}
+
+      {/* Over everything, so it can be read on the pause screen too. */}
+      {FRAME_STATS && <FrameMeter js={jsMeter} left={pad} />}
     </View>
   );
 }
@@ -777,15 +803,13 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.velvetNight, overflow: 'hidden' },
   stats: {
     position: 'absolute',
-    left: 8,
     bottom: 4,
-    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
-    fontSize: 10,
-    color: '#fff',
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     paddingHorizontal: 4,
+    paddingVertical: 1,
     borderRadius: 3,
   },
+  statsLine: { fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), fontSize: 10, lineHeight: 12, color: '#fff' },
   hud: { position: 'absolute', gap: 6 },
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   heart: { width: 34, height: 31, resizeMode: 'contain' },

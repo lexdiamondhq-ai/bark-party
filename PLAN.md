@@ -251,3 +251,13 @@ Steps:
 7. Checks, commit, push, fast-forward the Mac copy, and Alex plays a whole chapter and screenshots the meter on the pause screen.
 
 Not in this round without Alex's OK (feel changes): shorter hit freezes, fewer haptics, pose easing in the air, camera changes.
+
+**Status 2026-10-16, round A (steps 1-4): done, not yet seen on the iPhone.**
+- Repro (`TIMING=1 npm test -- frameTiming`): with the first version, one tick a second running 4 ms late already made the picture jump; at 5-10 ms late it jumped 16-59 times a minute (a step and a half each time).
+- The queue is what fixes it: the first clock plus the queue already had 0 jumps on every load. The grid clock (with its phase following the stamps) halves the doubled steps (452 against 901 over the phone-like loads) and has none for a tick up to 10 ms late on a steady or drifting display. A load that shifts by 5 ms and stays leaves it half a step ahead, where a tick 4 ms late doubles a step; the queue keeps that off the screen.
+- `uiThread.test.ts` now models the queued hand-off: "one missed JS frame every 2 s" went from 5 jumps to 0.
+- The playhead keeps three steps of lists and counts stills and jumps itself; the harness checks its counts equal what the eye would see.
+- Meter: `frameMeter.ts`, three lines (last second; run on the UI thread with what each slow frame came after; run on the JS thread with tick, event and sound costs), on top of the pause screen, counting only while the run is live.
+- Checked in the iPhone 17 Pro simulator (production bundle, 60 Hz screen): runs, held 0, skip 0, no late JS ticks; one sound call costs up to 3.1 ms on the JS thread; a 50 ms UI hitch right after the first bone (sound + haptic + HUD).
+- Found by the simulator, not by jest: a plain helper called from a worklet (`zeroCounts`) threw on the UI thread and closed Expo Go. Everything the frame callback calls must carry `'worklet'`.
+- `framePipeline.test.ts` timed ticks with the wall clock and failed on this Mac with nothing changed (another app on 5.5 of 8 cores); it now uses CPU time and prints instead of asserting the tick budgets when the Mac is busier than its core count.

@@ -6,14 +6,8 @@
 export const LEGS_PROBE = false;
 
 /**
- * Shows a one-line frame readout at the bottom of the play screen (JS and UI thread rates, the worst frame
- * gap each second, frames over 25 ms, and how many JS ticks ran zero or two sim steps). It costs one small
- * text update per second. Turn it off before a release.
+ * Shows the frame meter at the bottom of the play screen (frameMeter.ts): both threads' frame rates and
+ * slips over the last second and the whole run, and what each slow screen frame came after. It costs one
+ * small text update per second. Turn it off before a release.
  */
 export const FRAME_STATS = true;
-
-export interface UiStats {
-  fps: number;
-  max: number;
-  over: number;
-}

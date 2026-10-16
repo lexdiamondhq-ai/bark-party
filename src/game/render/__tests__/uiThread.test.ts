@@ -15,7 +15,7 @@ import { ROOM_SIZE } from '../../art';
 import { createWorld, drainEvents, stepWorld } from '../../sim/world';
 import { autopilot } from '../../sim/__tests__/autopilot';
 import { buildFrame, HEADER, OpList, RECT, STRIDE, STRIP, STRIP_AT, stripTable, type AtlasData, type FrameSetup } from '../buildFrame';
-import { advancePlayhead, drawOps, newPlayhead, SLACK, type DrawScratch } from '../drawOps';
+import { drawOps, movePlayhead, newPlayhead, receiveList, SLACK, type DrawScratch } from '../drawOps';
 import atlas from '../atlas.json';
 
 const PRINT = !!process.env.FRAMES;
@@ -40,7 +40,8 @@ interface Arrival {
 /**
  * JS ticks on a 60 Hz vsync. A tick that takes `work` ms hands its list over that long after the vsync; the
  * UI thread sees it at the first display frame after that. A tick can be late by whole frames (`stalls`):
- * the world then takes up to two steps at once and drops the rest (GameView's MAX_STEPS).
+ * the world then takes up to two steps at once and drops the rest (GameView's MAX_STEPS), and hands over a
+ * list for each step.
  */
 function arrivals(frames: number, work: () => number, stalls: Record<number, number> = {}, ui = UI_120): Arrival[] {
   const out: Arrival[] = [];
@@ -49,9 +50,8 @@ function arrivals(frames: number, work: () => number, stalls: Record<number, num
   for (let f = 0; f < frames; f++) {
     const missed = stalls[f] ?? 0;
     t += STEP_MS * (1 + missed);
-    step += Math.min(2, 1 + missed);
     const ready = t + work();
-    out.push({ at: Math.ceil(ready / ui - 1e-9) * ui, step });
+    for (let s = Math.min(2, 1 + missed); s > 0; s--) out.push({ at: Math.ceil(ready / ui - 1e-9) * ui, step: ++step });
   }
   return out;
 }
@@ -76,11 +76,12 @@ function play(lists: Arrival[], ui = UI_120) {
   const old: number[] = [];
   /** How far the picture is behind the newest moment the UI thread has. */
   const behind: number[] = [];
-  let j = 0;
+  let j = -1;
   for (let t = lists[0].at; t <= end; t += ui) {
-    while (j + 1 < lists.length && lists[j + 1].at <= t + 1e-6) j++;
+    // Every list that came in since the last frame, in order (GameCanvas's inbox).
+    while (j + 1 < lists.length && lists[j + 1].at <= t + 1e-6) receiveList(p, listFor(lists[++j].step));
     const step = lists[j].step;
-    advancePlayhead(p, t, listFor(step));
+    movePlayhead(p, t);
     now.push(p.list![0] - 1 + p.a);
     behind.push(step - now[now.length - 1]);
     // First version: a list blends from its own arrival, over one step, then holds.

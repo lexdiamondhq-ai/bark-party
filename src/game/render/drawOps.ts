@@ -3,6 +3,7 @@
 // run both in Node against made-up arrival times and a counting canvas.
 
 import type { SkCanvas, SkImage, SkPaint } from '@shopify/react-native-skia';
+import type { SharedValue } from 'react-native-reanimated';
 
 import { STEP } from '../constants';
 import { HEADER, RECT, STRIDE, STRIP } from './buildFrame';
@@ -118,6 +119,63 @@ export function advancePlayhead(p: Playhead, now: number, list: Float64Array, co
   'worklet';
   receiveList(p, list);
   movePlayhead(p, now, count);
+}
+
+/**
+ * Lists on their way from the game loop to the next display frame, oldest first. A queue, not one shared
+ * value the loop overwrites: two lists can land between two display frames (a tick that stepped twice, or a
+ * late tick and the next), and the playhead needs both or the picture jumps a step.
+ */
+export interface Inbox {
+  lists: Float64Array[];
+  /** What the game loop did since the last frame (frameMeter's DID_* bits). */
+  did: number;
+  /** The run is on (not paused, over or counting in), and a list has come in since: stills and jumps count. */
+  live: boolean;
+  armed: boolean;
+}
+
+export function newInbox(): Inbox {
+  return { lists: [], did: 0, live: false, armed: false };
+}
+
+/** Lists kept for a display frame that is late; older ones are dropped (the playhead keeps three steps). */
+const INBOX_MAX = 6;
+
+/** Runs on the UI thread: the game loop schedules it once per list (scheduleOnUI keeps them in order). */
+export function deliverList(inbox: SharedValue<Inbox>, list: Float64Array) {
+  'worklet';
+  const box = inbox.value;
+  box.lists.push(list);
+  if (box.lists.length > INBOX_MAX) box.lists.shift();
+}
+
+/** Runs on the UI thread: what the tick that sent the last lists did (sounds, haptics, HUD). */
+export function noteDid(inbox: SharedValue<Inbox>, did: number) {
+  'worklet';
+  inbox.value.did |= did;
+}
+
+/** Runs on the UI thread when the run starts, pauses, resumes or ends. */
+export function setLive(inbox: SharedValue<Inbox>, live: boolean) {
+  'worklet';
+  const box = inbox.value;
+  box.live = live;
+  if (!live) box.armed = false;
+}
+
+/** Takes everything in the inbox into the playhead, in order, and returns what the game loop did meanwhile. */
+export function takeInbox(box: Inbox, p: Playhead): number {
+  'worklet';
+  const n = box.lists.length;
+  for (let i = 0; i < n; i++) receiveList(p, box.lists[i]);
+  if (n) {
+    box.lists.length = 0;
+    if (box.live) box.armed = true;
+  }
+  const did = box.did;
+  box.did = 0;
+  return did;
 }
 
 /** One paint and a few plain objects, made once on the UI thread and reused by every op of every frame. */
