@@ -23,6 +23,7 @@ export const SOUND_SOURCES = {
   music_kitchen: require('../../assets/game/audio/music_kitchen.m4a'),
   music_living: require('../../assets/game/audio/music_living.m4a'),
   music_menu: require('../../assets/game/audio/music_menu.m4a'),
+  music_park: require('../../assets/game/audio/music_park.m4a'),
   music_story: require('../../assets/game/audio/music_story.m4a'),
   rescue: require('../../assets/game/audio/rescue.m4a'),
   slide: require('../../assets/game/audio/slide.m4a'),

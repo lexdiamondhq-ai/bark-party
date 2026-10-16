@@ -3,6 +3,7 @@
 // PACING=1 npm test -- pacing to print the table; the budget assertions run always.
 import { CHAPTER_1 } from '../../level/chapter1';
 import { CHAPTER_2 } from '../../level/chapter2';
+import { CHAPTER_3 } from '../../level/chapter3';
 import type { LevelDef } from '../../level/types';
 import { createWorld, drainEvents, stepWorld } from '../world';
 import type { World } from '../types';
@@ -148,7 +149,7 @@ const MIN_WINDUP = 0.45;
 const MIN_BEAT = 0.6;
 
 describe('pacing: every hazard is on screen long enough to answer', () => {
-  it.each([CHAPTER_1, CHAPTER_2])('$id', (level) => {
+  it.each([CHAPTER_1, CHAPTER_2, CHAPTER_3])('$id', (level) => {
     const r = probe(level);
     print(level.id, r);
     expect(r.phase).toBe('won');

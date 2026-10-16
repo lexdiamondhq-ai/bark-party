@@ -5,7 +5,7 @@
 // lists line up op for op, so the canvas can draw any moment in between, which is what keeps a
 // 120 Hz screen moving every frame while the simulation steps at 60.
 
-import { FLOOR_SCREEN_Y, WARN, POWER, STEP } from '../constants';
+import { FLOOR_SCREEN_Y, PHYS, WARN, POWER, STEP } from '../constants';
 import { PUP_LEG_FRAMES, PUP_TAIL_FRAMES, SPRITES, dogSprite, type SpriteName } from '../sprites';
 import { BOSS_LEAD, heroScale } from '../sim/world';
 import type { World } from '../sim/types';
@@ -274,7 +274,7 @@ interface View {
   t: number;
   camX: number;
   camY: number;
-  hero: PoseInput & { x: number; y: number; stride: number; invuln: number; big: number; bubble: number; turbo: number; pose: World['hero']['pose'] };
+  hero: PoseInput & { x: number; y: number; stride: number; invuln: number; hurtPose: number; big: number; bubble: number; turbo: number; pose: World['hero']['pose'] };
   /** Position of a moving thing at this moment. */
   pos: (x: number, px: number | undefined) => number;
   /** A timer that grew by one step: its value at this moment. */
@@ -316,6 +316,7 @@ function viewBefore(world: World): View {
       boost: p.boost,
       landImpact: p.landImpact,
       invuln: p.invuln,
+      hurtPose: p.hurtPose,
       big: p.mega <= 0 ? 1 : 1 + (POWER.megaScale - 1) * Math.min(1, p.megaAge / POWER.megaRamp, p.mega / POWER.megaRamp),
       bubble: world.hero.powers.bubble,
       turbo: Math.max(0, world.hero.powers.turbo + STEP),
@@ -715,9 +716,6 @@ function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: Pa
       name = 'pup_bark';
       rot = -0.05;
       break;
-    case 'hurt':
-      rot = Math.sin(t * 30) * 0.2;
-      break;
     case 'cheer':
     case 'idle':
       name = 'pup_sit';
@@ -733,7 +731,10 @@ function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: Pa
     return;
   }
 
-  // Running and airborne: the puppet, driven by one continuous pose.
+  // Running and airborne: the puppet, driven by one continuous pose. After a hit it wobbles, starting from
+  // still and dying away, so the wobble never jumps in or out between steps.
+  const hurtT = Math.max(0, PHYS.hurtPose - h.hurtPose);
+  const wobble = h.hurtPose > 0 ? Math.sin(hurtT * 30) * 0.2 * (h.hurtPose / PHYS.hurtPose) : 0;
   const pose = heroPose(h, h.stride, STEP);
   const sy = pose.sy * (h.boost > 0 ? 0.97 : 1);
   const layers = puppetLayers(pose, probe);
@@ -747,7 +748,7 @@ function drawHero(world: World, v: View, out: OpList, sprite: SpriteFn, part: Pa
     },
     h.x,
     h.y + pose.lift * big,
-    { rot: posed === 'hurt' ? rot : pose.rot, alpha: flicker, sxScale: 1 / Math.sqrt(sy), syScale: sy, big },
+    { rot: pose.rot + wobble, alpha: flicker, sxScale: 1 / Math.sqrt(sy), syScale: sy, big },
     layers,
   );
 }

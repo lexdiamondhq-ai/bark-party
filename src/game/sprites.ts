@@ -104,6 +104,15 @@ export const SPRITES = {
   dog_bowl: { w: 44, h: 20 },
   floor_kitchen: { w: 128, h: 40 },
 
+  // Park (Chapter 3)
+  park_bench: { w: 150, h: 64, top: 36 },
+  tree_stump: { w: 64, h: 52, top: 50 },
+  picnic_table: { w: 160, h: 72, top: 70 },
+  play_tower: { w: 100, h: 160, top: 158 },
+  flower_bed: { w: 60, h: 24 },
+  bush: { w: 70, h: 40 },
+  floor_park: { w: 128, h: 40 },
+
   // Power treats
   tennis_ball: { w: 18, h: 18 },
   bubble: { w: 64, h: 64 },

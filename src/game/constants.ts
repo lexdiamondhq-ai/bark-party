@@ -28,6 +28,8 @@ export const PHYS = {
   barkCooldown: 0.7,
   barkRange: 170,
   hurtInvuln: 1.3,
+  /** Seconds the pup wobbles after losing a heart. */
+  hurtPose: 0.35,
   stompBounce: 585,
   /** Height above the platform top within which a falling hero still lands on it. */
   landTolerance: 22,

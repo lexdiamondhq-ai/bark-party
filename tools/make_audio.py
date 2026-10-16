@@ -1336,8 +1336,71 @@ def music_kitchen():
                     rt=1.1, wet=0.2), s
 
 
+PARK_CHORDS = ("G D Em C  G D C D  G D Em C  G C D G  "
+               "C D Bm Em  C D G G  Am D G Em  C D G D").split()
+PARK_MELODY = (
+    # A section: a whistled stroll past the benches
+    "B4:0.5 D5:0.5 G5:1 F#5:0.5 G5:0.5 D5:1 | A4:0.5 D5:0.5 F#5:1 E5:0.5 F#5:0.5 A5:1 |"
+    "G5:0.5 E5:0.5 B4:1 E5:0.5 G5:0.5 B5:1 | A5:1 G5:0.5 E5:0.5 C5:2 |"
+    "B4:0.5 D5:0.5 G5:1 B5:1 A5:0.5 G5:0.5 | F#5:1.5 E5:0.5 D5:1 A4:1 |"
+    "E5:0.5 G5:0.5 C6:1 B5:0.5 A5:0.5 G5:1 | A5:2 r:1 D5:1 |"
+    "G5:0.5 G5:0.5 B5:1 A5:0.5 G5:0.5 D5:1 | F#5:0.5 A5:0.5 D6:1 C6:0.5 A5:0.5 F#5:1 |"
+    "E5:1 G5:0.5 B5:0.5 E6:1 D6:1 | C6:1.5 B5:0.5 A5:1 G5:1 |"
+    "B5:0.5 A5:0.5 G5:0.5 D5:0.5 G5:1 B5:1 | C6:1 B5:0.5 A5:0.5 G5:1 E5:1 |"
+    "F#5:0.5 G5:0.5 A5:0.5 B5:0.5 C6:1 A5:1 | G5:2 r:1 D5:0.5 E5:0.5 |"
+    # B section: the chase across the grass
+    "E5:1 G5:0.5 E5:0.5 C6:1 G5:1 | F#5:1 A5:0.5 F#5:0.5 D6:1 A5:1 |"
+    "B5:1.5 A5:0.5 F#5:1 D5:1 | E5:0.5 F#5:0.5 G5:0.5 B5:0.5 E6:2 |"
+    "E6:0.5 D6:0.5 C6:1 G5:0.5 E5:0.5 C6:1 | D6:0.5 C6:0.5 A5:1 F#5:0.5 A5:0.5 D6:1 |"
+    "B5:1 G5:1 D6:1 B5:1 | G5:3 r:1 |"
+    "A5:0.5 C6:0.5 E6:1 C6:0.5 A5:0.5 E5:1 | F#5:0.5 A5:0.5 D6:1 C6:0.5 A5:0.5 F#5:1 |"
+    "G5:0.5 B5:0.5 D6:1 G6:1 D6:1 | E6:1 B5:0.5 G5:0.5 E5:2 |"
+    "C6:0.5 B5:0.5 A5:0.5 G5:0.5 E5:1 G5:1 | A5:1 F#5:0.5 A5:0.5 D6:1 C6:1 |"
+    "B5:0.5 D6:0.5 G6:1 F#6:0.5 E6:0.5 D6:1 | A5:1 F#5:1 D5:1 r:1"
+)
+
+
+def music_park():
+    s = Song(150, 32)
+    mel = parse_melody(PARK_MELODY)
+    # A whistle: a soft triangle with a wide, lazy vibrato, doubled an octave down on a quiet pulse.
+    add_melody(s, "lead", mel, lambda f, d: inst_lead(f, d, duty=0.5, bright=2600, vib=0.012, shape="tri"), 0.3, 0.05, gate=0.86)
+    add_melody(s, "lead2", mel, lambda f, d: inst_lead(f, d, duty=0.25, bright=1400, vib=0.0), 0.08, -0.15, gate=0.7, transpose=-12)
+    s.echo("lead", 0.75, fb=0.18, taps=2)
+    for bar, ch in enumerate(PARK_CHORDS):
+        # Banjo-ish boom-chick: chord strums on 2 and 4, a quick roll on the last eighth.
+        tones = chord_tones(ch, 55)
+        for beat in (1, 3):
+            for j, m in enumerate(tones):
+                s.add("strum", inst_pluck(mtof(m + 12), 0.3 * s.beat, shape="pulse", duty=0.2, bright=3200, tau=0.07),
+                      bar * 4 + beat + j * 0.03, 0.08, 0.25)
+        s.add("strum", inst_pluck(mtof(tones[-1] + 12), 0.2 * s.beat, shape="pulse", duty=0.2, bright=3200, tau=0.05),
+              bar * 4 + 3.5, 0.07, 0.25)
+        # Bass on 1 and 3: root, then the fifth.
+        r = chord_root(ch, 40)
+        s.add("bass", inst_bass(mtof(r), 0.9 * s.beat, bright=800, tau=0.22, sus=0.5), bar * 4, 0.36, 0.0)
+        s.add("bass", inst_bass(mtof(r + 7), 0.9 * s.beat, bright=800, tau=0.22, sus=0.5), bar * 4 + 2, 0.32, 0.0)
+        # Birds: a two-note chirp every other bar, higher in the B section.
+        if bar % 2 == 1:
+            hi = 91 if bar >= 16 else 86
+            s.add("birds", inst_bell(mtof(hi), tau=0.12, bright_ratio=0.3), bar * 4 + 2.75, 0.05, -0.6)
+            s.add("birds", inst_bell(mtof(hi + 4), tau=0.1, bright_ratio=0.3), bar * 4 + 2.9, 0.045, -0.6)
+        # Drums: a light marching kit with a shaker on every eighth.
+        pat = [(0, drum_kick(), 0.4, 0), (2, drum_kick(), 0.34, 0), (1, drum_snare(), 0.15, 0.05), (3, drum_snare(), 0.17, 0.05)]
+        for i in range(8):
+            pat.append((i * 0.5, drum_shaker(), 0.05 if i % 2 == 0 else 0.08, -0.2))
+        if bar % 4 == 3:
+            pat += [(3.5, drum_woodblock(), 0.14, 0.3), (3.75, drum_woodblock(), 0.12, 0.3)]
+        if bar in (0, 16):
+            pat.append((0, drum_crash(), 0.1, 0.3))
+        add_drum_pattern(s, bar, pat)
+    return s.render(levels={}, sends={"lead": 0.3, "lead2": 0.12, "strum": 0.2, "birds": 0.5, "drums": 0.1},
+                    rt=1.2, wet=0.22), s
+
+
 MUSIC = {"music_menu": music_menu, "music_story": music_story,
-         "music_living": music_living, "music_boss": music_boss, "music_kitchen": music_kitchen}
+         "music_living": music_living, "music_boss": music_boss, "music_kitchen": music_kitchen,
+         "music_park": music_park}
 
 
 # ---------------------------------------------------------------------------

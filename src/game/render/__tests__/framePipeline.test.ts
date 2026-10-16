@@ -8,6 +8,7 @@
 // the previous list's "now" slots, or the picture pops at every hand-off. This probe measures the pop.
 import { CHAPTER_1 } from '../../level/chapter1';
 import { CHAPTER_2 } from '../../level/chapter2';
+import { CHAPTER_3 } from '../../level/chapter3';
 import type { LevelDef } from '../../level/types';
 import { STEP, VIEW_H } from '../../constants';
 import { ROOM_SIZE } from '../../art';
@@ -263,7 +264,7 @@ const POP = { pos: 1.5, size: 1.5, rot: 0.05, alpha: 0.1 };
 const BY_DESIGN = new Set(['boss']);
 
 describe('frame pipeline: every tick is cheap and every hand-off is seamless', () => {
-  it.each([CHAPTER_1, CHAPTER_2])('$id', (level) => {
+  it.each([CHAPTER_1, CHAPTER_2, CHAPTER_3])('$id', (level) => {
     const s = measure(level);
     print(level.id, s);
     expect(s.phase).toBe('won');

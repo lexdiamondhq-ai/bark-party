@@ -149,7 +149,7 @@ export const CH2_OUTRO: StoryPanel[] = [
   {
     room: 'room_kitchen',
     speaker: 'Chef Nutsy',
-    text: 'Fine! Keep your crumbs. The Gang will be back for the garden!',
+    text: 'Fine! Keep your crumbs. The Gang will see you at the park!',
     left: { kind: 'boss' },
     right: { kind: 'pup', pose: 'bark' },
   },
@@ -163,3 +163,47 @@ export const CH2_OUTRO: StoryPanel[] = [
 ];
 
 STORIES.ch2 = { intro: CH2_INTRO, outro: CH2_OUTRO };
+
+export const CH3_INTRO: StoryPanel[] = [
+  {
+    room: 'room_park',
+    speaker: 'Maya',
+    text: 'Picnic time! The whole party is moving to the park.',
+    left: { kind: 'coach', id: 'maya' },
+    right: { kind: 'dog', id: 'lab' },
+  },
+  {
+    room: 'room_park',
+    slam: true,
+    speaker: 'Pine Nutsy',
+    text: 'This park belongs to the Nutsy Gang! And these three pups are mine now!',
+    left: { kind: 'boss' },
+    right: { kind: 'cage', dog: 'shepherd' },
+  },
+  {
+    room: 'room_park',
+    speaker: 'Leo',
+    text: `Olive, Ziggy and Bijou! ${HERO_NAME}, hop the benches and picnic tables. Go get them!`,
+    left: { kind: 'coach', id: 'leo' },
+    right: { kind: 'pup', pose: 'bark' },
+  },
+];
+
+export const CH3_OUTRO: StoryPanel[] = [
+  {
+    room: 'room_park',
+    speaker: 'Pine Nutsy',
+    text: 'My park! Fine, keep it. But the Gang always gets the last nut. See you in the yard!',
+    left: { kind: 'boss' },
+    right: { kind: 'pup', pose: 'bark' },
+  },
+  {
+    room: 'room_park',
+    speaker: 'Hana',
+    text: `Every pup is safe and the picnic is saved. ${HERO_NAME}, take a bow!`,
+    left: { kind: 'coach', id: 'hana' },
+    right: { kind: 'dog', id: 'poodle' },
+  },
+];
+
+STORIES.ch3 = { intro: CH3_INTRO, outro: CH3_OUTRO };

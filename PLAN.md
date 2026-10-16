@@ -157,7 +157,6 @@ Upgrades reach the sim through `createWorld(level, viewW, seed, boosts)`.
 - Phase 4a item 3: Chapter 1 secret rooms behind a slide, with golden bones.
 - Phase 3 item 6: the allocation audit on the iPhone (the probe shows build 0.1 ms and op handoff 1-2 ms per step, so pooling has not been justified).
 - Phase 1 step 8: typed-array op handoff, only if the audit shows the 2 ms matters.
-- Kitchen music: Chapter 2 reuses the living-room track; `tools/make_audio.py` can make a kitchen one.
 - Party hats and bandanas as cosmetics would be new character art and need Alex's assets.
 
 ## Order and Alex checkpoints
@@ -212,3 +211,11 @@ Before: runners on screen 0.85-1.0 s before bark range and already 110-155 units
 5. Levels: stacked spots pulled apart and every coach tip moved to at least 1.5 s before the hazard it talks about. Proof: the pacing test asserts no tip is "busy" and no two answers fall inside 0.6 s.
 6. The pacing test asserts the budget for good: runners >= 1.0 s, acorns >= 0.6 s, throwers and cats >= 1.3 s, blocks >= 1.4 s, vacuums >= 1.0 s, throwers wind up >= 0.45 s, no two answers inside 0.6 s, no tip inside 1.2 s of a hazard. Budgets count ground covered at the level speed, so Turbo is the player's own risk.
    Chapter 1 lost the runner at 3150 and the blocks at 6760: both landed on top of another hazard with nowhere readable to move them.
+
+## Chapter 3: The Park (2026-10-16, Alex: "let's start building on it")
+
+1. `src/game/level/chapter3.ts`: stumps, benches, picnic tables and two playground towers on `room_park`; frees Olive (lab), Ziggy (shepherd) and Bijou (poodle); boss Pine Nutsy (4 hits). Props drawn in `tools/gen_sprites.js` (park_bench, tree_stump, picnic_table, play_tower, flower_bed, bush, floor_park).
+2. Story: `CH3_INTRO` and `CH3_OUTRO` in `story.ts`; the Chapter 2 outro now points at the park, the Chapter 3 outro at the yard.
+3. Music: `music_park` in `tools/make_audio.py` (150 bpm whistle, banjo-ish strums, birds).
+4. Two render pops found by the frame-pipeline probe on the new level and fixed for every chapter: a knocked-out cat or toy blocks started its spin from its old timer (now reset when knocked out), and the hurt wobble jumped in and out (now eases from still and dies away, `PHYS.hurtPose`).
+Proof: all chapter tests (autopilot win, pacing budgets, glitch runs, frame pipeline) pass for ch3; web screenshots of the story, the run and the boss. Not checked on a real iPhone yet.

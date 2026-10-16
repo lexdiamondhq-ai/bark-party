@@ -35,7 +35,6 @@ const TREAT_ART: Record<UpgradeId, number> = {
 
 /** Rooms still being drawn show at the end of the row, so the party has somewhere to grow. */
 const COMING: { title: string; chapter: number; background: keyof typeof ROOMS }[] = [
-  { title: 'The Park', chapter: 3, background: 'room_park' },
   { title: 'The Yard', chapter: 4, background: 'room_yard' },
 ];
 

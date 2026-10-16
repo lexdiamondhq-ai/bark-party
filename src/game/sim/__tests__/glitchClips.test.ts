@@ -6,6 +6,7 @@ import { writeFileSync } from 'fs';
 
 import { CHAPTER_1 } from '../../level/chapter1';
 import { CHAPTER_2 } from '../../level/chapter2';
+import { CHAPTER_3 } from '../../level/chapter3';
 import type { LevelDef } from '../../level/types';
 import { PHYS } from '../../constants';
 import { buildFrame, type AtlasData } from '../../render/buildFrame';
@@ -83,6 +84,7 @@ function record(level: LevelDef, policy: string, seed: number, retries: number, 
 (DIR ? it : it.skip)('dumps the moments a player sees', () => {
   record(CHAPTER_1, 'autopilot', 7, 0, 'ch1_autopilot');
   record(CHAPTER_2, 'autopilot', 7, 0, 'ch2_autopilot');
+  record(CHAPTER_3, 'autopilot', 7, 0, 'ch3_autopilot');
   // Respawns, retries and the boss retry.
   record(CHAPTER_1, 'diesToBoss', 1, 1, 'ch1_bossretry', (n) => n.startsWith('gameover') || n.startsWith('boss') || n.startsWith('respawn'));
   record(CHAPTER_1, 'random', 3, 3, 'ch1_random3', (n) => n.startsWith('respawn') || n.startsWith('gameover') || n.startsWith('vacuum bounce'));

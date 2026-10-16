@@ -90,13 +90,14 @@ describe('audio: no player is ever made mid-run', () => {
   });
 
   it('switching tracks pauses the old one and replays a kept player from the top', () => {
-    const { audio } = fresh();
+    const { audio, names } = fresh();
     audio.preloadSfx();
     audio.playMusic('music_living');
     audio.playMusic('music_boss');
     audio.playMusic('music_living');
     const loops = made.filter((p) => p.loop);
-    expect(loops.length).toBe(5);
+    // One player per track, made by preloadSfx; switching back and forth makes no more.
+    expect(loops.length).toBe(names.filter((n) => n.startsWith('music_')).length);
     const living = loops.find((p) => p.plays === 2)!;
     expect(living.paused).toBe(1);
     expect(living.seeks).toBe(2);

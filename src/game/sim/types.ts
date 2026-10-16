@@ -109,6 +109,7 @@ export interface RenderPrev {
   pose: HeroPose;
   landVy: number;
   wag: number;
+  hurtPose: number;
 }
 
 export type EnemyType = 'runner' | 'thrower' | 'cat' | 'vacuum' | 'blocks';

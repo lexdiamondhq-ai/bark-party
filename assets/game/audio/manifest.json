@@ -117,6 +117,13 @@
     "bpm": 100,
     "bars": 16
   },
+  "music_park.m4a": {
+    "seconds": 51.2,
+    "loop": true,
+    "samples": 2257920,
+    "bpm": 150,
+    "bars": 32
+  },
   "music_story.m4a": {
     "seconds": 43.636,
     "loop": true,

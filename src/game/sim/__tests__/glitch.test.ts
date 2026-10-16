@@ -3,6 +3,7 @@
 // test per mechanic that was caught misbehaving. PROBE=1 npm test -- glitch prints what every run saw.
 import { CHAPTER_1 } from '../../level/chapter1';
 import { CHAPTER_2 } from '../../level/chapter2';
+import { CHAPTER_3 } from '../../level/chapter3';
 import type { LevelDef } from '../../level/types';
 import { HERO_BOX, PHYS, STEP, WARN } from '../../constants';
 import { SPRITES } from '../../sprites';
@@ -56,7 +57,7 @@ describe('glitch probe: every step of both chapters, played well and played badl
     ['random', 3, 8],
     ['random', 4, 8],
   ];
-  it.each([CHAPTER_1, CHAPTER_2])('$id', (level) => {
+  it.each([CHAPTER_1, CHAPTER_2, CHAPTER_3])('$id', (level) => {
     for (const [policy, seed, retries] of RUNS) {
       const r = probe(level, policy, { seed, retries });
       if (PRINT) console.log(describeRun(r));
@@ -361,7 +362,7 @@ describe('respawns and "Try again"', () => {
 });
 
 describe('the boss', () => {
-  it.each([CHAPTER_1, CHAPTER_2])('$id: hops in from beyond the right edge at the phone width', (level) => {
+  it.each([CHAPTER_1, CHAPTER_2, CHAPTER_3])('$id: hops in from beyond the right edge at the phone width', (level) => {
     const w = createWorld({ ...flat(), boss: level.boss, runSpeed: level.runSpeed }, PHONE_VIEW_W);
     for (let i = 0; i < 60 * 60 && w.boss!.phase === 'waiting'; i++) stepWorld(w, NO_INPUT, STEP);
     const b = w.boss!;
@@ -402,7 +403,7 @@ describe('ids for the canvas', () => {
 });
 
 describe('level data', () => {
-  it.each([CHAPTER_1, CHAPTER_2])('$id: every squirrel and cat above the floor stands on a piece of furniture', (level) => {
+  it.each([CHAPTER_1, CHAPTER_2, CHAPTER_3])('$id: every squirrel and cat above the floor stands on a piece of furniture', (level) => {
     const w = createWorld(level, PHONE_VIEW_W);
     const floating = w.enemies
       .filter((e) => e.type !== 'vacuum' && e.type !== 'blocks' && e.y > 0)

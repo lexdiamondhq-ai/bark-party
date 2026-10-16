@@ -1,5 +1,6 @@
 import { CHAPTER_1 } from '../../level/chapter1';
 import { CHAPTER_2 } from '../../level/chapter2';
+import { CHAPTER_3 } from '../../level/chapter3';
 import type { LevelDef } from '../../level/types';
 import { HERO_BOX, PHYS } from '../../constants';
 import { createWorld, drainEvents, groundBelow, levelResult, stepWorld } from '../world';
@@ -214,6 +215,18 @@ describe('Chapter 1', () => {
     }
     const r = levelResult(w);
     console.log(`ch2 phase=${w.phase} maxX=${Math.round(maxX)} hurt=${w.hurtCount} bones=${r.bones}/${r.bonesTotal} gold=${r.goldBones}/${r.goldTotal} friends=${r.rescued}/${r.rescueTotal}`);
+    expect(w.phase).toBe('won');
+  });
+
+  it('the autopilot can reach the Chapter 3 boss and win', () => {
+    const w = createWorld(CHAPTER_3, 640, 7);
+    let maxX = 0;
+    for (let i = 0; i < 60 * 120 && w.phase !== 'won' && w.phase !== 'dead'; i++) {
+      stepWorld(w, autopilot(w), DT);
+      maxX = Math.max(maxX, w.hero.x);
+    }
+    const r = levelResult(w);
+    console.log(`ch3 phase=${w.phase} maxX=${Math.round(maxX)} hurt=${w.hurtCount} bones=${r.bones}/${r.bonesTotal} gold=${r.goldBones}/${r.goldTotal} friends=${r.rescued}/${r.rescueTotal}`);
     expect(w.phase).toBe('won');
   });
 });

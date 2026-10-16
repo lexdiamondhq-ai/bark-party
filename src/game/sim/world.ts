@@ -40,7 +40,7 @@ export function createWorld(level: LevelDef, viewW: number, seed = 1, boosts: Ru
     phase: 'run',
     phaseT: 0,
     hero: makeHero(0, level.runSpeed, maxHearts, boosts.startBubble ? 1 : 0),
-    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0, mega: 0, megaAge: 0, onGround: true, pose: 'run', landVy: 0, wag: 0 },
+    prev: { x: 0, y: 0, camX: 0, camY: 0, t: 0, stride: 0, vy: 0, sinceLand: 1, airTime: 0, boost: 0, restBlend: 0, landImpact: 0, invuln: 0, shakeX: 0, shakeY: 0, mega: 0, megaAge: 0, onGround: true, pose: 'run', landVy: 0, wag: 0, hurtPose: 0 },
     camX: 0,
     camY: 0,
     camLead: 0,
@@ -130,6 +130,7 @@ export function snapPrev(world: World) {
   p.pose = h.pose;
   p.landVy = h.landVy;
   p.wag = h.wag;
+  p.hurtPose = h.hurtPose;
   for (const b of world.balls) {
     b.px = b.x;
     b.py = b.y;
@@ -624,6 +625,7 @@ function barkWave(world: World) {
     if (Math.abs(e.y - h.y) > 100) continue;
     if (e.type === 'cat') {
       e.state = 'fled';
+      e.t = 0;
       e.vx = 260;
       e.vy = 300;
       e.facing = 1;
@@ -686,7 +688,7 @@ function loseHeart(world: World, fell: boolean) {
   h.hearts -= 1;
   world.hurtCount += 1;
   h.invuln = PHYS.hurtInvuln;
-  h.hurtPose = 0.35;
+  h.hurtPose = PHYS.hurtPose;
   h.boost = 0;
   impact(world, 'hurt');
   sfx(world, 'hurt');
@@ -848,6 +850,7 @@ function stepEnemies(world: World, dt: number) {
       // Mega Pup crushes whatever it runs into; the cat bolts.
       if (e.type === 'cat') {
         e.state = 'fled';
+        e.t = 0;
         e.vx = 300;
         e.vy = 320;
         e.pop = 0.18;
@@ -865,6 +868,7 @@ function stepEnemies(world: World, dt: number) {
       if (!e.awake) continue;
       if (fromAbove) {
         e.state = 'fled';
+        e.t = 0;
         e.vx = 240;
         e.vy = 260;
         e.pop = 0.18;
@@ -893,6 +897,7 @@ function stepEnemies(world: World, dt: number) {
       if (!fromAbove) {
         hurt(world);
         e.state = 'stunned';
+        e.t = 0;
         e.vx = 200;
         e.vy = 300;
         e.pop = 0.18;
@@ -1011,12 +1016,14 @@ function stepBalls(world: World, dt: number) {
         ball.alive = false;
         if (e.type === 'cat') {
           e.state = 'fled';
+          e.t = 0;
           e.vx = 260;
           e.vy = 300;
           e.pop = 0.18;
           sfx(world, 'cat_hiss');
         } else if (e.type === 'blocks') {
           e.state = 'stunned';
+          e.t = 0;
           e.vx = 220;
           e.vy = 320;
           e.pop = 0.18;

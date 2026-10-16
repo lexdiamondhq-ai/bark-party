@@ -948,6 +948,107 @@ function floorKitchen() {
   return g;
 }
 
+// ---------------------------------------------------------------- park (Chapter 3)
+const PK = { grass: '#7CC46A', grassS: '#5EA650', grassD: '#4E8F43', path: '#E8CFA2', pathS: '#D2B482', bench: '#5FA86A', benchS: '#468A52', iron: '#4A3E39', ironS: '#36302C', bark: '#9A6440', barkS: '#7C4D30', ring: '#E9C48F', ringS: '#C99B63', fort: '#E58A3C', fortS: '#C46C24', roof: '#4C8FE6', roofS: '#3772C4', petal: '#FF8FB1', petal2: '#FFD23F' };
+
+// A park bench: green slats on dark iron legs. The dog lands on the seat; the backrest sits behind it.
+function parkBench(top) {
+  let g = '';
+  const y0 = 64 - top + X.O;
+  g += strokes([`M16 ${y0 + 6} L12 62`, `M134 ${y0 + 6} L138 62`, `M22 ${y0} L22 4`, `M128 ${y0} L128 4`], 3.6, PK.iron, { O: 1.3 });
+  for (const y of [6, 15]) g += blob(R(10, y, 130, 7, 2.5), PK.bench, PK.benchS, { O: 1.8, so: 1, off: [0, -1] });
+  g += strokes([`M14 ${y0 + 12} L136 ${y0 + 12}`], 2.4, PK.ironS, { O: 0.9 });
+  g += blob(R(4, y0, 142, 9, 3), PK.bench, PK.benchS, { O: 2, so: 1.4, off: [0, -1.6] });
+  g += `<path d="M10 ${y0 + 2.6} L80 ${y0 + 2.6}" stroke="${WH}" stroke-opacity="0.4" stroke-width="1.6" stroke-linecap="round"/>`;
+  return g;
+}
+
+// A cut tree stump with rings on top: a low step.
+function treeStump(top) {
+  let g = '';
+  const y0 = 52 - top + X.O;
+  g += blob(P(`M8 50.5 Q12 44 13 ${y0 + 5} L51 ${y0 + 5} Q52 44 56 50.5 Z`), PK.bark, PK.barkS, {
+    O: 2, so: 2, off: [1.6, -1],
+    extra: `<path d="M22 ${y0 + 12} L21 46 M33 ${y0 + 10} L33 42 M44 ${y0 + 14} L45 47" stroke="${PK.barkS}" stroke-width="1.4" stroke-linecap="round"/>`,
+  });
+  g += blob(E(32, y0 + 5, 20, 5.4), PK.ring, PK.ringS, {
+    O: 2, so: 1, off: [0, -1],
+    extra: `<ellipse cx="32" cy="${y0 + 5.2}" rx="13" ry="3.2" fill="none" stroke="${PK.ringS}" stroke-width="1"/><ellipse cx="32" cy="${y0 + 5.2}" rx="6" ry="1.5" fill="none" stroke="${PK.ringS}" stroke-width="1"/>`,
+  });
+  g += blob([E(6, 49, 5, 2.4), E(58, 49, 5, 2.4)], PK.grass, PK.grassS, { O: 1.2, so: 0.6 });
+  return g;
+}
+
+// A wooden picnic table with a gingham cloth: the park's counter.
+function picnicTable(top) {
+  let g = '';
+  const y0 = 72 - top + X.O;
+  g += strokes([`M30 ${y0 + 10} L14 70`, `M50 ${y0 + 10} L66 70`, `M110 ${y0 + 10} L94 70`, `M130 ${y0 + 10} L146 70`], 4.4, C.wood, { O: 1.4 });
+  g += blob(R(6, 44, 148, 6, 2), C.wood, C.woodS, { O: 1.6, so: 1, off: [0, -1] });
+  const cloth = `M4 ${y0} L156 ${y0} L152 ${y0 + 16} L8 ${y0 + 16} Z`;
+  let checks = '';
+  for (let x = 4; x < 156; x += 12) checks += `<rect x="${x}" y="${y0}" width="6" height="16" fill="${C.red}" fill-opacity="0.75"/>`;
+  checks += `<rect x="0" y="${y0 + 5}" width="160" height="5" fill="${C.red}" fill-opacity="0.45"/>`;
+  g += blob(P(cloth), '#FFF4DE', '#EAD3A6', { O: 2.2, so: 1.2, off: [0, -1.4], extra: checks });
+  g += `<path d="M12 ${y0 + 2.4} L90 ${y0 + 2.4}" stroke="${WH}" stroke-opacity="0.55" stroke-width="1.4" stroke-linecap="round"/>`;
+  return g;
+}
+
+// A playground lookout tower: too tall to run through, its deck is the high spot.
+function playTower(top) {
+  let g = '';
+  const y0 = 160 - top + X.O;
+  // A solid back wall between the legs, so it reads as a block the pup bumps into.
+  g += blob(R(14, y0 + 30, 72, 158 - y0 - 30), '#F2B36B', '#DE9A52', { O: 1.6, so: 1.6, off: [1.4, 0] });
+  g += strokes([`M14 ${y0 + 4} L14 158`, `M86 ${y0 + 4} L86 158`], 7, C.wood, { O: 1.8 });
+  g += strokes([`M16 ${y0 + 30} L84 ${y0 + 80}`, `M84 ${y0 + 30} L16 ${y0 + 80}`], 3, C.woodS, { O: 1.2 });
+  g += blob(R(8, y0 + 4, 84, 30, 3), PK.fort, PK.fortS, {
+    O: 2.2, so: 1.8, off: [1.4, -1.6],
+    extra: `<path d="M8 ${y0 + 16} L92 ${y0 + 16}" stroke="${PK.fortS}" stroke-width="1.2"/>` + [22, 38, 54, 70].map((x) => `<path d="M${x} ${y0 + 4} L${x} ${y0 + 34}" stroke="${PK.fortS}" stroke-width="1.2"/>`).join(''),
+  });
+  g += blob(Ci(50, y0 + 20, 6), C.gold, C.goldS, { O: 1.4, so: 0.8 });
+  g += `<g fill="${C.goldS}"><ellipse cx="50" cy="${y0 + 21.6}" rx="2.6" ry="2"/><circle cx="46.6" cy="${y0 + 18.2}" r="1"/><circle cx="49" cy="${y0 + 16.8}" r="1"/><circle cx="51.6" cy="${y0 + 16.8}" r="1"/><circle cx="54" cy="${y0 + 18.2}" r="1"/></g>`;
+  // Ladder rungs on the front.
+  g += strokes([`M36 ${y0 + 40} L36 156`, `M64 ${y0 + 40} L64 156`], 3, C.woodS, { O: 1 });
+  for (let y = y0 + 52; y < 154; y += 18) g += strokes([`M36 ${y} L64 ${y}`], 2.6, C.wood, { O: 0.9 });
+  g += blob(R(2, y0, 96, 7, 2.5), PK.roof, PK.roofS, { O: 2, so: 1, off: [0, -1.4] });
+  g += `<path d="M8 ${y0 + 2.4} L60 ${y0 + 2.4}" stroke="${WH}" stroke-opacity="0.45" stroke-width="1.6" stroke-linecap="round"/>`;
+  return g;
+}
+
+// A little flower bed in front of the action.
+function flowerBed() {
+  let g = '';
+  g += blob(E(30, 19, 27, 5), PK.grassS, null, { O: 1.4 });
+  const fl = [[10, 12, PK.petal], [20, 8, PK.petal2], [31, 11, '#FFF4DE'], [41, 7, PK.petal], [50, 12, PK.petal2]];
+  for (const [x, y, col] of fl) {
+    g += `<path d="M${x} ${y} L${x} 18" stroke="${PK.grassD}" stroke-width="1.4" stroke-linecap="round"/>`;
+    g += blob([Ci(x - 2.4, y, 2.4), Ci(x + 2.4, y, 2.4), Ci(x, y - 2.4, 2.4), Ci(x, y + 2.4, 2.4)], col, null, { O: 0.9 });
+    g += `<circle cx="${x}" cy="${y}" r="1.4" fill="${C.goldS}"/>`;
+  }
+  g += blob([E(16, 18, 9, 4), E(44, 18, 10, 4)], PK.grass, PK.grassS, { O: 1.2, so: 0.8 });
+  return g;
+}
+
+// A round park bush.
+function bush() {
+  let g = blob([Ci(18, 26, 13), Ci(34, 18, 16), Ci(52, 26, 13), R(8, 26, 54, 12, 5)], PK.grass, PK.grassS, { O: 2, so: 2.2, off: [2, -1.6] });
+  g += ln('M26 16 Q30 12 35 13', 0.5) + ln('M46 24 Q50 21 54 23', 0.5);
+  g += `<path d="M28 9 Q34 5 41 8" stroke="${WH}" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round" fill="none"/>`;
+  return g;
+}
+
+// Grass along the top, a sandy path below: one 128-unit strip that repeats.
+function floorPark() {
+  let g = blob(R(0, 0, 128, 40), PK.path, null, { O: 0 });
+  g += `<rect x="0" y="0" width="128" height="11" fill="${PK.grass}"/><rect x="0" y="8" width="128" height="3" fill="${PK.grassS}"/>`;
+  for (let x = 4; x < 128; x += 8) g += `<path d="M${x} 11 L${x + 2} 14.4 L${x + 4} 11 Z" fill="${PK.grassS}"/>`;
+  const pebbles = [[14, 24], [44, 31], [70, 21], [96, 33], [116, 25]];
+  g += pebbles.map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="3" ry="1.6" fill="${PK.pathS}"/>`).join('');
+  g += `<path d="M0 0 L128 0" stroke="${OUT}" stroke-width="3"/>`;
+  return g;
+}
+
 // ---------------------------------------------------------------- power treats
 function tennisBall(s = 1) {
   let g = '';
@@ -1055,6 +1156,13 @@ add('stool', 56, 60, 2, () => stool(58), 58);
 add('fridge', 90, 160, 2.4, () => fridge(158), 158);
 add('dog_bowl', 44, 20, 1.6, () => dogBowl());
 add('floor_kitchen', 128, 40, 1.6, () => floorKitchen(), 40);
+add('park_bench', 150, 64, 2, () => parkBench(36), 36);
+add('tree_stump', 64, 52, 2, () => treeStump(50), 50);
+add('picnic_table', 160, 72, 2.2, () => picnicTable(70), 70);
+add('play_tower', 100, 160, 2.4, () => playTower(158), 158);
+add('flower_bed', 60, 24, 1.4, () => flowerBed());
+add('bush', 70, 40, 2, () => bush());
+add('floor_park', 128, 40, 1.6, () => floorPark(), 40);
 add('tennis_ball', 18, 18, 1.3, () => tennisBall());
 add('bubble', 64, 64, 0, () => bubble());
 add('power_mega', 32, 32, 1.6, () => iconMega());
