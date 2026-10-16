@@ -219,3 +219,35 @@ Before: runners on screen 0.85-1.0 s before bark range and already 110-155 units
 3. Music: `music_park` in `tools/make_audio.py` (150 bpm whistle, banjo-ish strums, birds).
 4. Two render pops found by the frame-pipeline probe on the new level and fixed for every chapter: a knocked-out cat or toy blocks started its spin from its old timer (now reset when knocked out), and the hurt wobble jumped in and out (now eases from still and dies away, `PHYS.hurtPose`).
 Proof: all chapter tests (autopilot win, pacing budgets, glitch runs, frame pipeline) pass for ch3; web screenshots of the story, the run and the boss. Not checked on a real iPhone yet.
+
+## Stutter pass (2026-10-16, Alex: "It's still glitchy when jumping and stutters.")
+
+Work happens in a separate worktree on branch `claude/stutter-fix`, so the build on Alex's phone does not change mid-test.
+The Mac copy is fast-forwarded only when the round is ready.
+
+Baseline from Alex's iPhone (production bundle, two one-second meter samples mid-jump): JS 60 Hz, worst gap 19-20 ms, no 0-step or 2-step ticks; UI 118-120 Hz, worst gap 23 ms with Reduce Motion off and 8 ms with it on.
+One second per sample is too little to judge, so this round also makes the meter count over the whole run.
+
+Checked in the installed libraries before planning:
+- RN 0.86 `requestAnimationFrame` is `setTimeout(0)` and passes `performance.now()` at the moment it runs, so any JS task queued ahead of it shows up as timing jitter (`TimerManager.cpp`).
+- expo-audio 57 `play()` is synchronous on the JS thread and calls `AVAudioSession.setActive(true)` every time; `keepAudioSessionActive` does not change that.
+- Every expo-audio play also re-registers a time observer on the main thread, and every seek, start, stop and end sends a status event to the JS thread, even with no listener (`AudioPlayer.swift`, `EventEmitter.swift`). A jump with bones fires 4-5 sounds, so about 15 extra JS tasks.
+- expo-haptics 57 builds a new feedback generator on the main thread (the thread that draws the game) for every haptic.
+- Reading `uiStats` on the JS thread is a blocking call into the UI thread, and the meter text lives in `GameView` state, so the meter re-renders the whole play screen once a second.
+
+Steps:
+1. A test harness that replays phone-like timing (60 Hz display link, small delays plus spikes and stalls) through the real tick clock and the real `advancePlayhead`, and counts held and skipped pictures.
+   Proof: it shows holds and skips on the current code before anything changes.
+2. Tick clock on a whole-frame grid (`src/game/render/stepClock.ts`): frame lengths are counted in 120 Hz display frames, two per step, so a late callback can no longer leave the step counter stuck on an edge.
+   Proof: unit tests plus the harness, no doubled or skipped steps for delays under 12 ms.
+3. Every list reaches the canvas in order: the JS side queues each list onto the UI thread instead of overwriting one shared value, and a two-step tick hands over both lists.
+   Proof: the harness shows no skips from late lists; framePipeline and uiThread tests still pass.
+4. The meter: its own small component, fed once a second from the UI thread without a blocking read, with run totals (slow screen frames and what happened just before them, held and skipped pictures, late JS ticks, sound and haptic counts and JS cost).
+   Proof: the line on the web build, then on Alex's phone.
+5. Sounds: the same sound at most once per tick, bone sounds at most one per 100 ms, and slow status timers on every player.
+   Proof: audioPool tests.
+6. Haptics: at most one per tick (the strongest), which is not something a hand can feel.
+   Proof: unit test of the filter.
+7. Checks, commit, push, fast-forward the Mac copy, and Alex plays a whole chapter and screenshots the meter on the pause screen.
+
+Not in this round without Alex's OK (feel changes): shorter hit freezes, fewer haptics, pose easing in the air, camera changes.
