@@ -6,8 +6,10 @@ import { BricolageGrotesque_800ExtraBold } from '@expo-google-fonts/bricolage-gr
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { preloadGameArt } from '../game/render/preloadArt';
 import { colors } from '../theme/tokens';
 
 export default function RootLayout() {
@@ -17,12 +19,18 @@ export default function RootLayout() {
     BricolageGrotesque_700Bold,
     BricolageGrotesque_800ExtraBold,
   });
+  // The game's pictures load while the menus are up, so a level's first frame is whole (over a dev tunnel
+  // they take seconds).
+  useEffect(() => {
+    preloadGameArt();
+  }, []);
   if (!loaded) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.velvetNight }}>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.velvetNight } }} />
+      {/* No swipe-back: a left-edge swipe must never pop a level mid-run or reveal a stale passport. */}
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: colors.velvetNight } }} />
     </GestureHandlerRootView>
   );
 }

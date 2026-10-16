@@ -1,14 +1,17 @@
 {
   "expo": {
-    "name": "Bark Party",
+    "name": "Dog Runner",
     "slug": "bark-party",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.dobetter.barkparty"
+      "bundleIdentifier": "com.dobetter.barkparty",
+      "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

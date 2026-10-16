@@ -1,0 +1,37 @@
+// Generated from assets/game/audio/manifest.json. Sounds are made by tools/make_audio.py.
+
+export const SOUND_SOURCES = {
+  acorn_hit: require('../../assets/game/audio/acorn_hit.m4a'),
+  acorn_throw: require('../../assets/game/audio/acorn_throw.m4a'),
+  bark: require('../../assets/game/audio/bark.m4a'),
+  bark_big: require('../../assets/game/audio/bark_big.m4a'),
+  blip: require('../../assets/game/audio/blip.m4a'),
+  bone: require('../../assets/game/audio/bone.m4a'),
+  bone_gold: require('../../assets/game/audio/bone_gold.m4a'),
+  boss_hit: require('../../assets/game/audio/boss_hit.m4a'),
+  boss_laugh: require('../../assets/game/audio/boss_laugh.m4a'),
+  button: require('../../assets/game/audio/button.m4a'),
+  cage_open: require('../../assets/game/audio/cage_open.m4a'),
+  cat_hiss: require('../../assets/game/audio/cat_hiss.m4a'),
+  checkpoint: require('../../assets/game/audio/checkpoint.m4a'),
+  double_jump: require('../../assets/game/audio/double_jump.m4a'),
+  game_over: require('../../assets/game/audio/game_over.m4a'),
+  hurt: require('../../assets/game/audio/hurt.m4a'),
+  jump: require('../../assets/game/audio/jump.m4a'),
+  land: require('../../assets/game/audio/land.m4a'),
+  music_boss: require('../../assets/game/audio/music_boss.m4a'),
+  music_kitchen: require('../../assets/game/audio/music_kitchen.m4a'),
+  music_living: require('../../assets/game/audio/music_living.m4a'),
+  music_menu: require('../../assets/game/audio/music_menu.m4a'),
+  music_park: require('../../assets/game/audio/music_park.m4a'),
+  music_story: require('../../assets/game/audio/music_story.m4a'),
+  rescue: require('../../assets/game/audio/rescue.m4a'),
+  slide: require('../../assets/game/audio/slide.m4a'),
+  squirrel_chitter: require('../../assets/game/audio/squirrel_chitter.m4a'),
+  squirrel_stun: require('../../assets/game/audio/squirrel_stun.m4a'),
+  vacuum: require('../../assets/game/audio/vacuum.m4a'),
+  victory: require('../../assets/game/audio/victory.m4a'),
+  whoosh: require('../../assets/game/audio/whoosh.m4a'),
+} as const;
+
+export type SoundName = keyof typeof SOUND_SOURCES;
