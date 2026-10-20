@@ -1,6 +1,6 @@
 # Bark Party
 
-iPhone party game of three-second dog microgames. Expo SDK 57, Expo Router, React Native Skia, Reanimated, Gesture Handler, expo-haptics and expo-audio.
+iPhone party game of three-second dog microgames. Expo SDK 58, Expo Router, React Native Skia, Reanimated, Gesture Handler, expo-haptics and expo-audio.
 
 The style guide is the source of truth for look, screens and motion: https://claude.ai/artifact/MiWbuu8tPfKX7aSH2cYQvD
 
