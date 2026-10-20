@@ -2,7 +2,7 @@
 // any time from the party room. Each card is the real art and one line.
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { type ScrollViewInstance, Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { PupWalker } from '../components/PupWalker';
 import { HUD, PUP } from '../game/art';
@@ -51,7 +51,7 @@ export default function Tricks() {
   const { then } = useLocalSearchParams<{ then?: string }>();
   const { progress } = useProgress();
   const [page, setPage] = useState(0);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const cardW = Math.min(width * 0.5, 440);
   const gap = 14;
 
